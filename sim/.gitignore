@@ -2,3 +2,4 @@
 *.log
 *.raw
 dbg.spice
+corner_*.spice

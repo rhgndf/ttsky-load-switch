@@ -1,0 +1,9 @@
+* Top-level LVS reference for tt_um_rhgndf_load_switch
+* ua[0]=SNS_A ua[1]=SNS_B ua[2]=GATE ua[3]=CT
+* ui_in[0]=OFF ui_in[1]=WAKE rst_n=RSTN
+* uo_out[0]=PWR_ON uo_out[1]=ILIM uo_out[2]=FAULT
+* uo_out[7:3], uio_out[7:0], uio_oe[7:0] are tied to VGND in the layout
+.include ls_core.spice
+.subckt tt_um_rhgndf_load_switch VGND VDPWR VAPWR ua[0] ua[1] ua[2] ua[3] ui_in[0] ui_in[1] rst_n uo_out[0] uo_out[1] uo_out[2]
+X0 VAPWR VDPWR VGND ua[0] ua[1] ua[2] ua[3] ui_in[0] ui_in[1] rst_n uo_out[0] uo_out[1] uo_out[2] ls_core
+.ends
