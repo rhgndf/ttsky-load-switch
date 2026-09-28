@@ -592,8 +592,8 @@ proc label_center {path pin kind} {
             if {$pin eq "G" && $layer eq "polycont"} {set priority 0}
             if {$pin in {D S} && $layer in {mvndiffc mvpdiffc}} {set priority 0}
         } elseif {$kind eq "capacitor"} {
-            if {$pin eq "C1" && $layer eq "mimcapcontact"} {set priority 0}
-            if {$pin eq "C2" && $layer eq "via3"} {set priority 0}
+            if {$pin eq "C1" && $layer eq "via3"} {set priority 0}
+            if {$pin eq "C2" && $layer eq "mimcapcontact"} {set priority 0}
         }
         lappend candidates [list $priority $x1 $y1 $x2 $y2 $layer]
     }
@@ -608,11 +608,11 @@ proc label_center {path pin kind} {
         [expr {$x1 / 200.0}] [expr {$y1 / 200.0}] [expr {$x2 / 200.0}] [expr {$y2 / 200.0}]]
 }
 
-proc mim_c2_metal3_landing {path x y} {
+proc mim_c2_metal4_landing {path} {
     set fh [open $path r]
     set layer ""
-    set via_rects {}
-    set metal3_rects {}
+    set contact_rects {}
+    set metal4_rects {}
     while {[gets $fh line] >= 0} {
         if {[regexp {^<< ([^ >]+) >>$} $line -> layer]} {
             continue
@@ -621,42 +621,42 @@ proc mim_c2_metal3_landing {path x y} {
             $line -> x1 y1 x2 y2]} {
             continue
         }
-        if {$layer eq "via3"} {
-            lappend via_rects [list $x1 $y1 $x2 $y2]
-        } elseif {$layer eq "metal3"} {
-            lappend metal3_rects [list $x1 $y1 $x2 $y2]
+        if {$layer eq "mimcapcontact" && $x1 <= 0 && $x2 >= 0 &&
+            $y1 <= 0 && $y2 >= 0} {
+            lappend contact_rects [list $x1 $y1 $x2 $y2]
+        } elseif {$layer eq "metal4"} {
+            lappend metal4_rects [list $x1 $y1 $x2 $y2]
         }
     }
     close $fh
-    set px [expr {$x * 200.0}]
-    set py [expr {$y * 200.0}]
+    if {[llength $contact_rects] == 0} {
+        error "No C2 MIM contact region in $path"
+    }
+    set contact_xhi -1.0e30
+    foreach rect $contact_rects {
+        lassign $rect x1 y1 x2 y2
+        if {$x2 > $contact_xhi} {set contact_xhi $x2}
+    }
     set landing {}
     set landing_width 1.0e30
-    foreach via $via_rects {
-        lassign $via vx1 vy1 vx2 vy2
-        if {$px < $vx1 || $px > $vx2 || $py < $vy1 || $py > $vy2} {
+    foreach rect $metal4_rects {
+        lassign $rect x1 y1 x2 y2
+        if {abs($x1 - $contact_xhi) > 1 || $x2 <= $contact_xhi ||
+            $y1 > 0 || $y2 < 0} {
             continue
         }
-        foreach rect $metal3_rects {
-            lassign $rect mx1 my1 mx2 my2
-            if {$py < $my1 || $py > $my2} {
-                continue
-            }
-            if {abs($mx2 - $vx1) > 1 && abs($mx1 - $vx2) > 1} {
-                continue
-            }
-            set width [expr {$mx2 - $mx1}]
-            if {$width < $landing_width} {
-                set landing_width $width
-                set landing $rect
-            }
+        set width [expr {$x2 - $x1}]
+        if {$width < $landing_width} {
+            set landing_width $width
+            set landing $rect
         }
     }
     if {$landing eq ""} {
-        error "No metal3 landing adjacent to MIM C2 via3 in $path"
+        error "No metal4 access adjacent to MIM C2 contact in $path"
     }
     lassign $landing x1 y1 x2 y2
-    return [list [expr {$x1 / 200.0}] [expr {$y1 / 200.0}] \
+    return [list [expr {($x1 + $x2) / 400.0}] 0.0 met4 \
+        [expr {$x1 / 200.0}] [expr {$y1 / 200.0}] \
         [expr {$x2 / 200.0}] [expr {$y2 / 200.0}]]
 }
 
@@ -707,9 +707,14 @@ proc transform_rect {x1 y1 x2 y2 rotation} {
     return [list $xlo $ylo $xhi $yhi]
 }
 
-proc add_net_pin {path x y pin net kind {rotation 0}} {
+proc add_net_pin {path x y pin net kind {rotation 0} {access_override ""}} {
     global endpoints route_endpoint_rects
-    lassign [label_center $path $pin $kind] px py layer bx1 by1 bx2 by2
+    if {$access_override eq ""} {
+        set terminal [label_center $path $pin $kind]
+    } else {
+        set terminal $access_override
+    }
+    lassign $terminal px py layer bx1 by1 bx2 by2
     set local_px $px
     set local_py $py
     lassign [transform_point $px $py $rotation] px py
@@ -725,11 +730,9 @@ proc add_net_pin {path x y pin net kind {rotation 0}} {
             [expr {$px - 0.085}] [expr {$py - 0.085}] \
             [expr {$px + 0.085}] [expr {$py + 0.085}]]
     } elseif {$kind eq "capacitor" && $pin eq "C2"} {
-        lassign [mim_c2_metal3_landing $path $local_px $local_py] x1 y1 x2 y2
-        lassign [transform_rect $x1 $y1 $x2 $y2 $rotation] x1 y1 x2 y2
-        lappend shapes [list $net met3 \
-            [expr {$x + $x1}] [expr {$y + $y1}] \
-            [expr {$x + $x2}] [expr {$y + $y2}]]
+        lappend shapes [list $net met4 \
+            [expr {$px - 0.20}] [expr {$py - 0.20}] \
+            [expr {$px + 0.20}] [expr {$py + 0.20}]]
     } elseif {$kind eq "capacitor"} {
         lappend shapes [list $net met3 \
             [expr {$px - 0.31}] [expr {$py - 0.20}] [expr {$px + 0.31}] [expr {$py + 0.20}]]
@@ -1675,6 +1678,14 @@ proc local_m1_access_shapes {endpoint column escape_y axis} {
     return $shapes
 }
 
+proc mim_c2_escape_y {} {
+    global mimcap_global_bbox
+    if {[llength $mimcap_global_bbox] != 4} {
+        error "MIM escape requires capacitor placement"
+    }
+    return [expr {[lindex $mimcap_global_bbox 3] + 0.6}]
+}
+
 proc deterministic_stub_shapes {net endpoint column lane {pad_escape_y ""} \
     {local_escape_y ""} {local_escape_axis vertical}} {
     lassign $endpoint x y kind pin layer
@@ -1693,9 +1704,15 @@ proc deterministic_stub_shapes {net endpoint column lane {pad_escape_y ""} \
         lappend shapes {*}[route_via3_shapes $column $escape_y]
         set y $escape_y
     } elseif {$kind eq "capacitor" && $pin eq "C2"} {
+        set escape_y [mim_c2_escape_y]
+        lappend shapes [list met4 [expr {$x - 0.15}] \
+            [expr {min($y, $escape_y) - 0.15}] [expr {$x + 0.15}] \
+            [expr {max($y, $escape_y) + 0.15}]]
         lappend shapes [list met4 [expr {min($x, $column) - 0.15}] \
-            [expr {$y - 0.15}] [expr {max($x, $column) + 0.15}] [expr {$y + 0.15}]]
-        lappend shapes {*}[route_via3_shapes $column $y]
+            [expr {$escape_y - 0.15}] [expr {max($x, $column) + 0.15}] \
+            [expr {$escape_y + 0.15}]]
+        lappend shapes {*}[route_via3_shapes $column $escape_y]
+        set y $escape_y
     } elseif {$kind in {logic mos}} {
         if {$local_escape_y eq ""} {
             set local_escape_y $y
@@ -1737,12 +1754,17 @@ proc route_deterministic_signal_endpoint {net endpoint column lane \
         paint_via3 $net $column $escape_y
         set y $escape_y
     } elseif {$kind eq "capacitor" && $pin eq "C2"} {
+        set escape_y [mim_c2_escape_y]
+        paint_net_rect $net met4 [expr {$x - 0.15}] \
+            [expr {min($y, $escape_y) - 0.15}] [expr {$x + 0.15}] \
+            [expr {max($y, $escape_y) + 0.15}]
         if {abs($x - $column) > 1.0e-6} {
             paint_net_rect $net met4 [expr {min($x, $column) - 0.15}] \
-                [expr {$y - 0.15}] [expr {max($x, $column) + 0.15}] \
-                [expr {$y + 0.15}]
+                [expr {$escape_y - 0.15}] [expr {max($x, $column) + 0.15}] \
+                [expr {$escape_y + 0.15}]
         }
-        paint_via3 $net $column $y
+        paint_via3 $net $column $escape_y
+        set y $escape_y
     } elseif {$kind in {logic mos}} {
         if {$local_escape_y eq ""} {
             set local_escape_y $y
@@ -1985,7 +2007,7 @@ proc route_global_nets {} {
                     }
                 }
                 if {$kind eq "capacitor" && $pin eq "C2"} {
-                    set ranked [lsort -real -index 2 $ranked]
+                    set ranked [lsort -decreasing -real -index 2 $ranked]
                 } else {
                     set ranked [lsort -real -index 0 $ranked]
                 }
@@ -2752,7 +2774,7 @@ proc make_mim_cap {} {
     load $cell
     box 0 0 0 0
     set params [dict merge [sky130::sky130_fd_pr__cap_mim_m3_1_defaults] \
-        [dict create w 38 l 38 doports 1 term_t C2 term_b C1]]
+        [dict create w 38 l 38 doports 0 term_t C2 term_b C1]]
     sky130::sky130_fd_pr__cap_mim_m3_1_draw $params
     save "$cell.mag"
     load $top
@@ -2793,7 +2815,8 @@ proc collect_mim_endpoints {} {
     global mimcap_global_rotation mimcap_global_xy
     lassign $mimcap_global_xy x y
     add_net_pin XCC.mag $x $y C1 out1 capacitor $mimcap_global_rotation
-    add_net_pin XCC.mag $x $y C2 cz capacitor $mimcap_global_rotation
+    set c2_access [mim_c2_metal4_landing XCC.mag]
+    add_net_pin XCC.mag $x $y C2 cz capacitor $mimcap_global_rotation $c2_access
 }
 
 cd [file join $root mag]
