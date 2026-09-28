@@ -38,7 +38,7 @@ external N-MOSFET level shifter:
   10nF this takes about 16ms, long enough for the inrush into a Pi's input capacitors. CT is discharged
   whenever the switch is not limiting. Tying CT to GND disables the fault latch, so the switch just limits
   current indefinitely. Only do that if the MOSFET can dissipate (V_IN − V_OUT) × I_lim.
-* **Control logic.** The logic uses sky130 HVL cells at 3.3V, with level shifters to the 1.8V project I/O.
+* **Control logic.** The logic is built from custom 5V-rated sky130 transistors on the 3.3V supply, with level shifters to the 1.8V project I/O.
   - The OFF input sets an OFF latch, and power stays off even after OFF returns low.
   - WAKE or a low rst_n clears both the OFF latch and the FAULT latch.
   - Because it is latched, OFF works with the Pi's `gpio-poweroff` overlay. The Pi drives the pin high at

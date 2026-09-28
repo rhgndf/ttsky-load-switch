@@ -1,6 +1,5 @@
 * Turn-on into 100uF + 2 Ohm, overload to ~9A demand at 10ms -> limit ~4.9A -> fault latch after CT timeout
 .lib /foss/pdks/sky130A/libs.tech/ngspice/sky130.lib.spice tt
-.include /foss/pdks/sky130A/libs.ref/sky130_fd_sc_hvl/spice/sky130_fd_sc_hvl.spice
 .include ../spice/ls_core.spice
 .include models/ext.lib
 .include ext_circuit.spice

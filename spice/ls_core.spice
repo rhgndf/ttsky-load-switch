@@ -6,13 +6,57 @@
 *   CT     external fault-timer capacitor
 *   OFF WAKE RSTN      1.8V digital inputs
 *   PWR_ON ILIM FAULT  1.8V digital outputs
+* ---- custom 5V-device logic cells (all sky130_fd_pr__*_g5v0d10v5) ----
+.subckt ls_inv A Y VPWR VGND
+XMP Y A VPWR VPWR sky130_fd_pr__pfet_g5v0d10v5 W=2 L=0.5
+XMN Y A VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
+.ends ls_inv
+
+.subckt ls_nor2 A B Y VPWR VGND
+XMPA pab A VPWR VPWR sky130_fd_pr__pfet_g5v0d10v5 W=2 L=0.5
+XMPB Y B pab VPWR sky130_fd_pr__pfet_g5v0d10v5 W=2 L=0.5
+XMNA Y A VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
+XMNB Y B VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
+.ends ls_nor2
+
+.subckt ls_nor3 A B C Y VPWR VGND
+XMPA pab A VPWR VPWR sky130_fd_pr__pfet_g5v0d10v5 W=2 L=0.5
+XMPB pbc B pab VPWR sky130_fd_pr__pfet_g5v0d10v5 W=2 L=0.5
+XMPC Y C pbc VPWR sky130_fd_pr__pfet_g5v0d10v5 W=2 L=0.5
+XMNA Y A VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
+XMNB Y B VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
+XMNC Y C VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
+.ends ls_nor3
+
+* 1.8V -> 3.3V: input inverter on VDPWR, then cross-coupled DCVS stage on VAPWR. Y follows A.
+.subckt ls_lvshift A Y VAPWR VDPWR VGND
+XMPI ab A VDPWR VDPWR sky130_fd_pr__pfet_g5v0d10v5 W=2 L=0.5
+XMNI ab A VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
+XMNA yb A VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=4 L=0.5
+XMNB Y ab VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=4 L=0.5
+XMPA yb Y VAPWR VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=1 L=1
+XMPB Y yb VAPWR VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=1 L=1
+.ends ls_lvshift
+
+* non-inverting Schmitt trigger buffer
+.subckt ls_schmitt A Y VPWR VGND
+XMP1 p1 A VPWR VPWR sky130_fd_pr__pfet_g5v0d10v5 W=1 L=0.5
+XMP2 yn A p1 VPWR sky130_fd_pr__pfet_g5v0d10v5 W=1 L=0.5
+XMP3 p1 yn VGND VPWR sky130_fd_pr__pfet_g5v0d10v5 W=1 L=0.5
+XMN1 n1 A VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
+XMN2 yn A n1 VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
+XMN3 n1 yn VPWR VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
+XMPO Y yn VPWR VPWR sky130_fd_pr__pfet_g5v0d10v5 W=2 L=0.5
+XMNO Y yn VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
+.ends ls_schmitt
+
 .subckt ls_core VAPWR VDPWR VGND SNS_A SNS_B GATE CT OFF WAKE RSTN PWR_ON ILIM FAULT
 
 * ---- bias: ~5uA reference ----
-XR1 VAPWR r1 VGND sky130_fd_pr__res_xhigh_po_0p35 L=20
-XR2 r1 r2 VGND sky130_fd_pr__res_xhigh_po_0p35 L=20
-XR3 r2 r3 VGND sky130_fd_pr__res_xhigh_po_0p35 L=20
-XR4 r3 nb VGND sky130_fd_pr__res_xhigh_po_0p35 L=20
+XR1 VAPWR r1 VGND sky130_fd_pr__res_xhigh_po_0p69 L=40
+XR2 r1 r2 VGND sky130_fd_pr__res_xhigh_po_0p69 L=40
+XR3 r2 r3 VGND sky130_fd_pr__res_xhigh_po_0p69 L=40
+XR4 r3 nb VGND sky130_fd_pr__res_xhigh_po_0p69 L=40
 XMB0 nb nb VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=2 L=1
 XMB1 pb nb VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=2 L=1
 XMB2 pb pb VAPWR VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=2 L=4
@@ -26,7 +70,7 @@ XM4 out1 d1 VAPWR VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=4 L=2
 XM6 GATE out1 VAPWR VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=40 L=1
 XM7 GATE nb VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=40 L=1
 XCC out1 cz sky130_fd_pr__cap_mim_m3_1 W=38 L=38 MF=1
-XRZ cz GATE VGND sky130_fd_pr__res_xhigh_po_0p35 L=1
+XRZ cz GATE VGND sky130_fd_pr__res_xhigh_po_0p69 L=2
 * disable: park out1 high, pull GATE low
 XMEN out1 en VAPWR VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=2 L=0.5
 XMPD GATE enb VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=5 L=0.5
@@ -39,28 +83,29 @@ XM7R det nb VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=8 L=1
 XMTS ts pb VAPWR VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=1 L=8
 XMTSW CT ilimb_h ts VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=1 L=0.5
 XMTD CT ilimb_h VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=1 L=0.5
-XS0 CT VGND VGND VAPWR VAPWR trip sky130_fd_sc_hvl__schmittbuf_1
+XS0 CT trip VAPWR VGND ls_schmitt
 
-* ---- input level shifters ----
-XLS0 OFF VDPWR VGND VGND VAPWR VAPWR off_h sky130_fd_sc_hvl__lsbuflv2hv_1
-XLS1 WAKE VDPWR VGND VGND VAPWR VAPWR wake_h sky130_fd_sc_hvl__lsbuflv2hv_1
-XLS2 RSTN VDPWR VGND VGND VAPWR VAPWR rstn_h sky130_fd_sc_hvl__lsbuflv2hv_1
-XI0 rstn_h VGND VGND VAPWR VAPWR rst_h sky130_fd_sc_hvl__inv_1
+* ---- input level shifters (1.8V -> 3.3V) ----
+XLS0 OFF off_h VAPWR VDPWR VGND ls_lvshift
+XLS1 WAKE wake_h VAPWR VDPWR VGND ls_lvshift
+XLS2 RSTN rstn_h VAPWR VDPWR VGND ls_lvshift
+XI0 rstn_h rst_h VAPWR VGND ls_inv
 
 * ---- latches ----
 * fault latch: set by trip, cleared by wake/reset
-XN0 wake_h rst_h fb VGND VGND VAPWR VAPWR flt sky130_fd_sc_hvl__nor3_1
-XN1 trip flt VGND VGND VAPWR VAPWR fb sky130_fd_sc_hvl__nor2_1
+XN0 wake_h rst_h fb flt VAPWR VGND ls_nor3
+XN1 trip flt fb VAPWR VGND ls_nor2
 * off latch: set by OFF, cleared by wake/reset
-XN2 wake_h rst_h oqb VGND VGND VAPWR VAPWR oq sky130_fd_sc_hvl__nor3_1
-XN3 off_h oq VGND VGND VAPWR VAPWR oqb sky130_fd_sc_hvl__nor2_1
-XN4 oq flt VGND VGND VAPWR VAPWR en sky130_fd_sc_hvl__nor2_1
-XI1 en VGND VGND VAPWR VAPWR enb sky130_fd_sc_hvl__inv_1
-XN5 det enb VGND VGND VAPWR VAPWR ilim_h sky130_fd_sc_hvl__nor2_1
-XI2 ilim_h VGND VGND VAPWR VAPWR ilimb_h sky130_fd_sc_hvl__inv_1
+XN2 wake_h rst_h oqb oq VAPWR VGND ls_nor3
+XN3 off_h oq oqb VAPWR VGND ls_nor2
+XN4 oq flt en VAPWR VGND ls_nor2
+XI1 en enb VAPWR VGND ls_inv
+XN5 det enb ilim_h VAPWR VGND ls_nor2
+XI2 ilim_h ilimb_h VAPWR VGND ls_inv
+XI3 flt fltb VAPWR VGND ls_inv
 
-* ---- output level shifters ----
-XO0 en VDPWR VGND VGND VAPWR VAPWR PWR_ON sky130_fd_sc_hvl__lsbufhv2lv_1
-XO1 ilim_h VDPWR VGND VGND VAPWR VAPWR ILIM sky130_fd_sc_hvl__lsbufhv2lv_1
-XO2 flt VDPWR VGND VGND VAPWR VAPWR FAULT sky130_fd_sc_hvl__lsbufhv2lv_1
+* ---- output level shifters (3.3V -> 1.8V): inverters on VDPWR ----
+XO0 enb PWR_ON VDPWR VGND ls_inv
+XO1 ilimb_h ILIM VDPWR VGND ls_inv
+XO2 fltb FAULT VDPWR VGND ls_inv
 .ends ls_core

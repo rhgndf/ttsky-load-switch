@@ -1,7 +1,6 @@
 * Full sequence: latched off -> WAKE -> inrush into 100uF||2R -> overload (~9A demand) -> limit ~4.9A
 * -> CT timeout -> FAULT latched off -> overload removed -> WAKE restart -> GPIO OFF pulse -> latched off
 .lib /foss/pdks/sky130A/libs.tech/ngspice/sky130.lib.spice tt
-.include /foss/pdks/sky130A/libs.ref/sky130_fd_sc_hvl/spice/sky130_fd_sc_hvl.spice
 .include ../spice/ls_core.spice
 .include models/ext.lib
 .include ext_circuit.spice
