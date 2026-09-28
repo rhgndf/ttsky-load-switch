@@ -19,58 +19,77 @@ if {$layout_target ni {top subckts}} {
     error "Unknown LAYOUT_TARGET: $layout_target"
 }
 
-proc paint_rect {layer x1 y1 x2 y2} {
+set route_guard_rects {}
+array set route_guard_spacing {li 0.17 locali 0.17 met1 0.14 met2 0.14 met3 0.3 met4 0.3}
+proc route_guard_reset {} {
+    set ::route_guard_rects {}
+}
+
+proc route_guard_register {net layer x1 y1 x2 y2} {
+    global route_guard_rects route_guard_spacing
+    set xlo [expr {min($x1, $x2)}]
+    set ylo [expr {min($y1, $y2)}]
+    set xhi [expr {max($x1, $x2)}]
+    set yhi [expr {max($y1, $y2)}]
+    set spacing 0.0
+    if {[info exists route_guard_spacing($layer)]} {
+        set spacing $route_guard_spacing($layer)
+    }
+    set conflicts {}
+    foreach rect $route_guard_rects {
+        lassign $rect owner other_layer ox1 oy1 ox2 oy2
+        if {$owner eq $net || $other_layer ne $layer} {
+            continue
+        }
+        if {$xlo < $ox2 + $spacing && $xhi > $ox1 - $spacing &&
+            $ylo < $oy2 + $spacing && $yhi > $oy1 - $spacing} {
+            lappend conflicts [format "%s %s {%.3f %.3f %.3f %.3f}" \
+                $owner $other_layer $ox1 $oy1 $ox2 $oy2]
+        }
+    }
+    if {[llength $conflicts] > 0} {
+        error [format "route conflict: %s %s {%.3f %.3f %.3f %.3f} spacing %.3f conflicts with %s" \
+            $net $layer $xlo $ylo $xhi $yhi $spacing [join $conflicts {; }]]
+    }
+    lappend route_guard_rects [list $net $layer $xlo $ylo $xhi $yhi]
+}
+
+proc paint_net_rect {net layer x1 y1 x2 y2} {
+    route_guard_register $net $layer $x1 $y1 $x2 $y2
     box ${x1}um ${y1}um ${x2}um ${y2}um
     paint $layer
 }
 
-proc paint_m2_path {points} {
-    set width 0.4
+proc paint_m2_path {points net} {
+    set width 0.3
     for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
         lassign [lindex $points $i] x1 y1
         lassign [lindex $points [expr {$i + 1}]] x2 y2
         if {abs($x1 - $x2) < 1.0e-6} {
-            paint_rect met2 [expr {$x1 - $width / 2.0}] [expr {min($y1, $y2) - $width / 2.0}] \
+            paint_net_rect $net met2 [expr {$x1 - $width / 2.0}] [expr {min($y1, $y2) - $width / 2.0}] \
                 [expr {$x1 + $width / 2.0}] [expr {max($y1, $y2) + $width / 2.0}]
         } elseif {abs($y1 - $y2) < 1.0e-6} {
-            paint_rect met2 [expr {min($x1, $x2) - $width / 2.0}] [expr {$y1 - $width / 2.0}] \
+            paint_net_rect $net met2 [expr {min($x1, $x2) - $width / 2.0}] [expr {$y1 - $width / 2.0}] \
                 [expr {max($x1, $x2) + $width / 2.0}] [expr {$y1 + $width / 2.0}]
         } else {
-            error "Resistor route is not Manhattan"
+            error "M2 route is not Manhattan"
         }
     }
 }
 
-proc paint_m3_path {points} {
+proc paint_m3_path {points net} {
     set width 0.4
     for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
         lassign [lindex $points $i] x1 y1
         lassign [lindex $points [expr {$i + 1}]] x2 y2
         if {abs($x1 - $x2) < 1.0e-6} {
-            paint_rect met3 [expr {$x1 - $width / 2.0}] [expr {min($y1, $y2) - $width / 2.0}] \
+            paint_net_rect $net met3 [expr {$x1 - $width / 2.0}] [expr {min($y1, $y2) - $width / 2.0}] \
                 [expr {$x1 + $width / 2.0}] [expr {max($y1, $y2) + $width / 2.0}]
         } elseif {abs($y1 - $y2) < 1.0e-6} {
-            paint_rect met3 [expr {min($x1, $x2) - $width / 2.0}] [expr {$y1 - $width / 2.0}] \
+            paint_net_rect $net met3 [expr {min($x1, $x2) - $width / 2.0}] [expr {$y1 - $width / 2.0}] \
                 [expr {max($x1, $x2) + $width / 2.0}] [expr {$y1 + $width / 2.0}]
         } else {
-            error "Resistor route is not Manhattan"
-        }
-    }
-}
-
-proc paint_m4_path {points} {
-    set width 0.4
-    for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
-        lassign [lindex $points $i] x1 y1
-        lassign [lindex $points [expr {$i + 1}]] x2 y2
-        if {abs($x1 - $x2) < 1.0e-6} {
-            paint_rect met4 [expr {$x1 - $width / 2.0}] [expr {min($y1, $y2) - $width / 2.0}] \
-                [expr {$x1 + $width / 2.0}] [expr {max($y1, $y2) + $width / 2.0}]
-        } elseif {abs($y1 - $y2) < 1.0e-6} {
-            paint_rect met4 [expr {min($x1, $x2) - $width / 2.0}] [expr {$y1 - $width / 2.0}] \
-                [expr {max($x1, $x2) + $width / 2.0}] [expr {$y1 + $width / 2.0}]
-        } else {
-            error "MIM route is not Manhattan"
+            error "M3 route is not Manhattan"
         }
     }
 }
@@ -84,23 +103,22 @@ proc make_res_port_label {name x y use layer} {
     port connections n s e w
 }
 
-proc route_res_contact {x y} {
-    paint_rect locali [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
-    paint_rect mcon [expr {$x - 0.16}] [expr {$y - 0.16}] [expr {$x + 0.16}] [expr {$y + 0.16}]
-    paint_rect met1 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
-    paint_rect via1 [expr {$x - 0.16}] [expr {$y - 0.16}] [expr {$x + 0.16}] [expr {$y + 0.16}]
-    paint_rect met2 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+proc route_res_contact {x y net} {
+    paint_net_rect $net locali [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+    paint_net_rect $net mcon [expr {$x - 0.16}] [expr {$y - 0.16}] [expr {$x + 0.16}] [expr {$y + 0.16}]
+    paint_net_rect $net met1 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+    paint_via1 $net $x $y
+    paint_net_rect $net met2 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
 }
 
-proc route_res_body_contact {x y exit_x} {
-    paint_rect locali [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
-    paint_rect mcon [expr {$x - 0.16}] [expr {$y - 0.16}] [expr {$x + 0.16}] [expr {$y + 0.16}]
-    paint_rect met1 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
-    paint_rect met1 [expr {min($x, $exit_x) - 0.2}] [expr {$y - 0.2}] [expr {max($x, $exit_x) + 0.2}] [expr {$y + 0.2}]
-    paint_rect via1 [expr {$exit_x - 0.16}] [expr {$y - 0.16}] [expr {$exit_x + 0.16}] [expr {$y + 0.16}]
-    paint_rect met2 [expr {$exit_x - 0.22}] [expr {$y - 0.22}] [expr {$exit_x + 0.22}] [expr {$y + 0.22}]
-    paint_rect via2 [expr {$exit_x - 0.16}] [expr {$y - 0.16}] [expr {$exit_x + 0.16}] [expr {$y + 0.16}]
-    paint_rect met3 [expr {$exit_x - 0.22}] [expr {$y - 0.22}] [expr {$exit_x + 0.22}] [expr {$y + 0.22}]
+proc route_res_body_contact {x y exit_x net} {
+    paint_net_rect $net locali [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+    paint_net_rect $net mcon [expr {$x - 0.16}] [expr {$y - 0.16}] [expr {$x + 0.16}] [expr {$y + 0.16}]
+    paint_net_rect $net met1 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+    paint_net_rect $net met1 [expr {min($x, $exit_x) - 0.2}] [expr {$y - 0.2}] [expr {max($x, $exit_x) + 0.2}] [expr {$y + 0.2}]
+    paint_via1 $net $exit_x $y
+    paint_net_rect $net met2 [expr {$exit_x - 0.22}] [expr {$y - 0.22}] [expr {$exit_x + 0.22}] [expr {$y + 0.22}]
+    paint_via2 $net $exit_x $y
 }
 
 proc make_mos {parent name type w l} {
@@ -119,7 +137,8 @@ proc make_mos {parent name type w l} {
 }
 
 proc make_res_group {} {
-    global top
+    global top res_group_local_m3_obstacles
+    route_guard_reset
     set cell res_group
     file delete -force "$cell.mag"
     load $cell
@@ -161,37 +180,44 @@ proc make_res_group {} {
     array set r1y {}
     array set r2x {}
     array set r2y {}
+    set r1nets {VAPWR r1 r2 r3 cz}
+    set r2nets {r1 r2 r3 nb GATE}
     for {set i 0} {$i < 5} {incr i} {
         lassign [label_center "$cell.mag" "R1_$i" resistor] r1x($i) r1y($i) layer
         lassign [label_center "$cell.mag" "R2_$i" resistor] r2x($i) r2y($i) layer
-        route_res_contact $r1x($i) $r1y($i)
-        route_res_contact $r2x($i) $r2y($i)
+        route_res_contact $r1x($i) $r1y($i) [lindex $r1nets $i]
+        route_res_contact $r2x($i) $r2y($i) [lindex $r2nets $i]
     }
     lassign [label_center "$cell.mag" B resistor] bx by layer
     set body_route_x [expr {$x1 - 2.0}]
-    route_res_body_contact $bx $by $body_route_x
+    route_res_body_contact $bx $by $body_route_x VGND
     for {set i 0} {$i < 3} {incr i} {
         set xmid [expr {($r2x($i) + $r1x([expr {$i + 1}])) / 2.0}]
         paint_m2_path [list \
             [list $r2x($i) $r2y($i)] \
             [list $xmid $r2y($i)] \
             [list $xmid $r1y([expr {$i + 1}])] \
-            [list $r1x([expr {$i + 1}]) $r1y([expr {$i + 1}])]]
+            [list $r1x([expr {$i + 1}]) $r1y([expr {$i + 1}])]] [lindex {r1 r2 r3} $i]
     }
     set top_port_y [expr {$y2 + 7.0}]
     set nb_port_y [expr {$y1 - 7.0}]
     set gate_port_y [expr {$y1 - 8.5}]
     set body_port_y [expr {$y1 - 10.0}]
-    paint_m2_path [list [list $r1x(0) $r1y(0)] [list $r1x(0) $top_port_y]]
-    paint_m2_path [list [list $r2x(3) $r2y(3)] [list $r2x(3) $nb_port_y]]
-    paint_m2_path [list [list $r1x(4) $r1y(4)] [list $r1x(4) [expr {$top_port_y + 2.0}]]]
-    paint_rect via2 [expr {$r2x(4) - 0.16}] [expr {$r2y(4) - 0.16}] [expr {$r2x(4) + 0.16}] [expr {$r2y(4) + 0.16}]
-    paint_rect met3 [expr {$r2x(4) - 0.22}] [expr {$r2y(4) - 0.22}] [expr {$r2x(4) + 0.22}] [expr {$r2y(4) + 0.22}]
-    paint_m3_path [list [list $r2x(4) $r2y(4)] [list $r2x(4) $gate_port_y]]
+    paint_m2_path [list [list $r1x(0) $r1y(0)] [list $r1x(0) $top_port_y]] VAPWR
+    paint_m2_path [list [list $r2x(3) $r2y(3)] [list $r2x(3) $nb_port_y]] nb
+    paint_m2_path [list [list $r1x(4) $r1y(4)] [list $r1x(4) [expr {$top_port_y + 2.0}]]] cz
+    paint_via2 GATE $r2x(4) $r2y(4)
+    paint_m3_path [list [list $r2x(4) $r2y(4)] [list $r2x(4) $gate_port_y]] GATE
     paint_m3_path [list \
-        [list $bx $by] \
         [list $body_route_x $by] \
-        [list $body_route_x $body_port_y]]
+        [list $body_route_x $body_port_y]] VGND
+    set res_group_local_m3_obstacles [list \
+        [list GATE met3 \
+            [expr {$r2x(4) - 0.2}] [expr {min($r2y(4), $gate_port_y) - 0.2}] \
+            [expr {$r2x(4) + 0.2}] [expr {max($r2y(4), $gate_port_y) + 0.2}]] \
+        [list VGND met3 \
+            [expr {$body_route_x - 0.2}] [expr {min($by, $body_port_y) - 0.2}] \
+            [expr {$body_route_x + 0.2}] [expr {max($by, $body_port_y) + 0.2}]]]
     make_res_port_label VAPWR $r1x(0) $top_port_y power met2
     make_res_port_label nb $r2x(3) $nb_port_y signal met2
     make_res_port_label cz $r1x(4) [expr {$top_port_y + 2.0}] signal met2
@@ -268,7 +294,9 @@ proc label_center {path pin kind} {
     }
     set candidates [lsort -integer -index 0 $candidates]
     lassign [lindex $candidates 0] priority x1 y1 x2 y2 layer
-    return [list [expr {($x1 + $x2) / 400.0}] [expr {($y1 + $y2) / 400.0}] $layer]
+    return [list \
+        [expr {($x1 + $x2) / 400.0}] [expr {($y1 + $y2) / 400.0}] $layer \
+        [expr {$x1 / 200.0}] [expr {$y1 / 200.0}] [expr {$x2 / 200.0}] [expr {$y2 / 200.0}]]
 }
 
 array set endpoints {}
@@ -277,13 +305,38 @@ array set logic_cell_height {}
 array set logic_instance_xy {}
 set res_group_global_bbox {}
 set mimcap_global_bbox {}
+set analog_start_y 0.0
+set res_group_local_m3_obstacles {}
+set res_group_global_m3_obstacles {}
 proc add_net_pin {path x y pin net kind} {
     global endpoints
-    lassign [label_center $path $pin $kind] px py layer
+    lassign [label_center $path $pin $kind] px py layer bx1 by1 bx2 by2
+    set px [expr {$x + $px}]
+    set py [expr {$y + $py}]
+    route_guard_register $net $layer \
+        [expr {$x + $bx1}] [expr {$y + $by1}] [expr {$x + $bx2}] [expr {$y + $by2}]
+    if {$kind eq "mos"} {
+        route_guard_register $net met1 \
+            [expr {$px - 0.22}] [expr {$py - 0.22}] [expr {$px + 0.22}] [expr {$py + 0.22}]
+    } elseif {$kind eq "capacitor" && $pin eq "C2"} {
+        route_guard_register $net $layer \
+            [expr {$px - 0.165}] [expr {$py - 0.165}] [expr {$px + 0.165}] [expr {$py + 0.165}]
+        route_guard_register $net met3 \
+            [expr {$px - 0.31}] [expr {$py - 0.20}] [expr {$px + 0.31}] [expr {$py + 0.20}]
+    } elseif {$kind eq "capacitor"} {
+        route_guard_register $net met3 \
+            [expr {$px - 0.31}] [expr {$py - 0.20}] [expr {$px + 0.31}] [expr {$py + 0.20}]
+    } elseif {$kind eq "pad"} {
+        route_guard_register $net $layer \
+            [expr {$px - 0.30}] [expr {$py - 0.30}] [expr {$px + 0.30}] [expr {$py + 0.30}]
+    } elseif {$layer in {met1 met2 met3 met4 locali}} {
+        route_guard_register $net $layer \
+            [expr {$px - 0.22}] [expr {$py - 0.22}] [expr {$px + 0.22}] [expr {$py + 0.22}]
+    }
     if {![info exists endpoints($net)]} {
         set endpoints($net) {}
     }
-    lappend endpoints($net) [list [expr {$x + $px}] [expr {$y + $py}] $kind $pin $layer]
+    lappend endpoints($net) [list $px $py $kind $pin $layer]
 }
 
 proc place_existing_mos {name x y pinmap} {
@@ -297,21 +350,23 @@ proc place_existing_mos {name x y pinmap} {
 proc x_access {x pin kind} {
     if {$kind eq "mos"} {
         switch -- $pin {
-            D {return $x}
-            S {return $x}
-            G {return [expr {$x + 1.0}]}
-            B {return [expr {$x - 1.0}]}
+            D {return [expr {$x - 0.12}]}
+            S {return [expr {$x + 0.12}]}
+            G {return [expr {$x + 1.8}]}
+            B {return [expr {$x - 1.8}]}
         }
     }
     return [expr {$x + 0.35}]
 }
 
-proc paint_via1 {x y} {
-    box [expr {$x - 0.13}]um [expr {$y - 0.13}]um [expr {$x + 0.13}]um [expr {$y + 0.13}]um
+proc paint_via1 {net x y} {
+    paint_net_rect $net met1 [expr {$x - 0.18}] [expr {$y - 0.13}] [expr {$x + 0.18}] [expr {$y + 0.13}]
+    paint_net_rect $net met2 [expr {$x - 0.13}] [expr {$y - 0.18}] [expr {$x + 0.13}] [expr {$y + 0.18}]
+    paint_net_rect $net via1 [expr {$x - 0.13}] [expr {$y - 0.13}] [expr {$x + 0.13}] [expr {$y + 0.13}]
     sky130::via1_draw
 }
 
-proc route_mos_endpoint {x y pin layer lane {track_x ""}} {
+proc route_mos_endpoint {x y pin layer lane net {track_x ""}} {
     set local_route [expr {$track_x eq ""}]
     set ax [x_access $x $pin mos]
     set ay $y
@@ -322,161 +377,123 @@ proc route_mos_endpoint {x y pin layer lane {track_x ""}} {
         set ay [expr {$y + 1.0}]
     }
     if {$pin eq "B"} {
-        paint_rect locali [expr {$x - 0.18}] [expr {$y - 0.18}] [expr {$x + 0.18}] [expr {$y + 0.18}]
+        paint_net_rect $net locali [expr {$x - 0.18}] [expr {$y - 0.18}] [expr {$x + 0.18}] [expr {$y + 0.18}]
+        paint_net_rect $net mcon [expr {$x - 0.10}] [expr {$y - 0.10}] [expr {$x + 0.10}] [expr {$y + 0.10}]
+        paint_net_rect $net met1 [expr {$x - 0.13}] [expr {$y - 0.16}] [expr {$x + 0.13}] [expr {$y + 0.16}]
         box [expr {$x - 0.10}]um [expr {$y - 0.10}]um [expr {$x + 0.10}]um [expr {$y + 0.10}]um
         sky130::mcon_draw vert
     }
     if {$pin eq "G"} {
-        paint_rect met1 [expr {$x - 0.08}] [expr {min($y,$ay) - 0.08}] [expr {$x + 0.08}] [expr {max($y,$ay) + 0.08}]
-        paint_rect met1 [expr {min($x,$ax) - 0.08}] [expr {$ay - 0.08}] [expr {max($x,$ax) + 0.08}] [expr {$ay + 0.08}]
-        paint_rect met1 [expr {$ax - 0.22}] [expr {$ay - 0.22}] [expr {$ax + 0.22}] [expr {$ay + 0.22}]
+        paint_net_rect $net met1 [expr {$x - 0.08}] [expr {min($y,$ay) - 0.08}] [expr {$x + 0.08}] [expr {max($y,$ay) + 0.08}]
+        paint_net_rect $net met1 [expr {min($x,$ax) - 0.08}] [expr {$ay - 0.08}] [expr {max($x,$ax) + 0.08}] [expr {$ay + 0.08}]
+        paint_net_rect $net met1 [expr {$ax - 0.22}] [expr {$ay - 0.22}] [expr {$ax + 0.22}] [expr {$ay + 0.22}]
     } else {
-        paint_rect met1 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
-        paint_rect met1 [expr {min($x,$ax) - 0.22}] [expr {$y - 0.22}] [expr {max($x,$ax) + 0.22}] [expr {$y + 0.22}]
+        paint_net_rect $net met1 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+        paint_net_rect $net met1 [expr {min($x,$ax) - 0.22}] [expr {$y - 0.22}] [expr {max($x,$ax) + 0.22}] [expr {$y + 0.22}]
     }
-    paint_via1 $ax $ay
+    paint_via1 $net $ax $ay
     if {$local_route} {
+        paint_via2 $net $ax $ay 1
         if {abs($ay - $lane) > 1.0e-6} {
-            paint_m2_path [list [list $ax $ay] [list $ax $lane]]
+            paint_m3_path [list [list $ax $ay] [list $ax $lane]] $net
         }
-        paint_via2 $ax $lane
+        paint_via2 $net $ax $lane 1
         return $ax
     }
-    paint_via2 $ax $ay
-    if {abs($ax - $track_x) > 1.0e-6} {
-        paint_m3_path [list [list $ax $ay] [list $track_x $ay]]
-    }
-    if {abs($ax - $track_x) < 1.0e-6} {
-        paint_via2 $track_x $ay 1
-    } else {
-        paint_via2 $track_x $ay
-    }
+    paint_via2 $net $ax $ay 1
     if {abs($ay - $lane) > 1.0e-6} {
-        paint_m2_path [list [list $track_x $ay] [list $track_x $lane]]
+        paint_m3_path [list [list $ax $ay] [list $ax $lane]] $net
     }
-    paint_via2 $track_x $lane 1
+    paint_via2 $net $ax $lane 1
+    if {abs($ax - $track_x) > 1.0e-6} {
+        paint_m2_path [list [list $ax $lane] [list $track_x $lane]] $net
+    }
+    paint_via2 $net $track_x $lane 1
     return $track_x
 }
 
-proc paint_via2 {x y {wide_m3 0}} {
-    box [expr {$x - 0.14}]um [expr {$y - 0.14}]um [expr {$x + 0.14}]um [expr {$y + 0.14}]um
-    sky130::via2_draw
+proc paint_via2 {net x y {wide_m3 0}} {
+    paint_net_rect $net met2 [expr {$x - 0.14}] [expr {$y - 0.19}] [expr {$x + 0.14}] [expr {$y + 0.19}]
     if {$wide_m3} {
-        paint_rect met3 [expr {$x - 0.31}] [expr {$y - 0.20}] [expr {$x + 0.31}] [expr {$y + 0.20}]
-    }
-}
-
-proc paint_via3 {x y} {
-    box [expr {$x - 0.16}]um [expr {$y - 0.16}]um [expr {$x + 0.16}]um [expr {$y + 0.16}]um
-    sky130::via3_draw
-    paint_rect met3 [expr {$x - 0.31}] [expr {$y - 0.20}] [expr {$x + 0.31}] [expr {$y + 0.20}]
-}
-
-proc route_metal_endpoint {x y layer lane track_x} {
-    if {$layer eq "met4"} {
-        paint_via3 $x $y
-        if {abs($x - $track_x) > 1.0e-6} {
-            paint_m3_path [list [list $x $y] [list $track_x $y]]
-        }
-        paint_via2 $track_x $y 1
-    } elseif {$layer in {met3 via3 mimcapcontact}} {
-        if {abs($x - $track_x) > 1.0e-6} {
-            paint_m3_path [list [list $x $y] [list $track_x $y]]
-        }
-        if {abs($x - $track_x) < 1.0e-6} {
-            paint_via2 $track_x $y 1
-        } else {
-            paint_via2 $track_x $y
-        }
-    } elseif {$layer ne "met2"} {
-        error "Unsupported route endpoint layer $layer"
+        paint_net_rect $net met3 [expr {$x - 0.31}] [expr {$y - 0.20}] [expr {$x + 0.31}] [expr {$y + 0.20}]
     } else {
-        paint_via2 $x $y
-        if {abs($x - $track_x) > 1.0e-6} {
-            paint_m3_path [list [list $x $y] [list $track_x $y]]
-        }
-        paint_via2 $track_x $y
+        paint_net_rect $net met3 [expr {$x - 0.19}] [expr {$y - 0.165}] [expr {$x + 0.19}] [expr {$y + 0.165}]
+    }
+    paint_net_rect $net via2 [expr {$x - 0.14}] [expr {$y - 0.14}] [expr {$x + 0.14}] [expr {$y + 0.14}]
+    sky130::via2_draw
+}
+
+proc paint_via3 {net x y} {
+    paint_net_rect $net met3 [expr {$x - 0.31}] [expr {$y - 0.20}] [expr {$x + 0.31}] [expr {$y + 0.20}]
+    paint_net_rect $net met4 [expr {$x - 0.165}] [expr {$y - 0.165}] [expr {$x + 0.165}] [expr {$y + 0.165}]
+    paint_net_rect $net via3 [expr {$x - 0.16}] [expr {$y - 0.16}] [expr {$x + 0.16}] [expr {$y + 0.16}]
+    sky130::via3_draw
+}
+
+proc route_metal_endpoint {x y layer lane track_x net} {
+    if {$layer eq "met4"} {
+        paint_via3 $net $x $y
+    } elseif {$layer eq "met2"} {
+        paint_via2 $net $x $y
+    } elseif {$layer ni {met3 via3 mimcapcontact}} {
+        error "Unsupported route endpoint layer $layer"
     }
     if {abs($y - $lane) > 1.0e-6} {
-        paint_m2_path [list [list $track_x $y] [list $track_x $lane]]
+        paint_m3_path [list [list $x $y] [list $x $lane]] $net
     }
-    paint_via2 $track_x $lane 1
+    paint_via2 $net $x $lane 1
+    if {abs($x - $track_x) > 1.0e-6} {
+        paint_m2_path [list [list $x $lane] [list $track_x $lane]] $net
+    }
+    paint_via2 $net $track_x $lane 1
     return $track_x
 }
 
-proc route_resistor_endpoint {x y pin layer lane track_x} {
-    global res_group_global_bbox
-    lassign $res_group_global_bbox x1 y1 x2 y2
-    set ax $x
-    if {$pin in {nb GATE}} {
-        set ax [expr {$x2 + 1.0}]
-    } elseif {$pin eq "VGND"} {
-        set ax [expr {$x1 - 1.0}]
-    }
-    if {$ax != $x} {
-        if {$layer eq "met3"} {
-            paint_m3_path [list [list $x $y] [list $ax $y]]
-        } elseif {$layer eq "met2"} {
-            paint_m2_path [list [list $x $y] [list $ax $y]]
-        } else {
-            error "Unsupported resistor endpoint layer $layer"
-        }
-    } elseif {$layer ni {met2 met3}} {
+proc route_resistor_endpoint {x y pin layer lane track_x net} {
+    if {$layer ni {met2 met3}} {
         error "Unsupported resistor endpoint layer $layer"
     }
-    if {abs($ax - $track_x) < 1.0e-6} {
-        paint_via2 $ax $y 1
-    } else {
-        paint_via2 $ax $y
-    }
-    if {abs($ax - $track_x) > 1.0e-6} {
-        paint_m3_path [list [list $ax $y] [list $track_x $y]]
-    }
-    if {abs($ax - $track_x) < 1.0e-6} {
-        paint_via2 $track_x $y 1
-    } else {
-        paint_via2 $track_x $y
+    if {$layer eq "met2"} {
+        paint_via2 $net $x $y
     }
     if {abs($y - $lane) > 1.0e-6} {
-        paint_m2_path [list [list $track_x $y] [list $track_x $lane]]
+        paint_m3_path [list [list $x $y] [list $x $lane]] $net
     }
-    paint_via2 $track_x $lane 1
+    paint_via2 $net $x $lane 1
+    if {abs($x - $track_x) > 1.0e-6} {
+        paint_m2_path [list [list $x $lane] [list $track_x $lane]] $net
+    }
+    paint_via2 $net $track_x $lane 1
     return $track_x
 }
 
-proc route_mim_endpoint {x y pin lane track_x} {
-    if {$pin eq "C1"} {
-        paint_m3_path [list [list $x $y] [list $track_x $y]]
-    } elseif {$pin eq "C2"} {
-        paint_m4_path [list [list $x $y] [list $track_x $y]]
-        paint_via3 $track_x $y
-    } else {
+proc route_mim_endpoint {x y pin lane track_x net} {
+    if {$pin eq "C2"} {
+        paint_via3 $net $x $y
+    } elseif {$pin ne "C1"} {
         error "Unsupported MIM terminal $pin"
     }
-    paint_via2 $track_x $y 1
     if {abs($y - $lane) > 1.0e-6} {
-        paint_m2_path [list [list $track_x $y] [list $track_x $lane]]
+        paint_m3_path [list [list $x $y] [list $x $lane]] $net
     }
-    paint_via2 $track_x $lane 1
+    paint_via2 $net $x $lane 1
+    if {abs($x - $track_x) > 1.0e-6} {
+        paint_m2_path [list [list $x $lane] [list $track_x $lane]] $net
+    }
+    paint_via2 $net $track_x $lane 1
     return $track_x
 }
 
-proc route_bottom_pad {x y lane access_x escape_y track_x} {
-    paint_rect met4 [expr {$x - 0.30}] [expr {$y - 0.30}] [expr {$x + 0.30}] [expr {$y + 0.30}]
-    paint_via3 $x $y
-    paint_m3_path [list [list $x $y] [list $x $escape_y]]
-    if {abs($x - $access_x) > 1.0e-6} {
-        paint_m3_path [list [list $x $escape_y] [list $access_x $escape_y]]
+proc route_bottom_pad {x y lane track_x net} {
+    paint_via3 $net $x $y
+    if {abs($y - $lane) > 1.0e-6} {
+        paint_m3_path [list [list $x $y] [list $x $lane]] $net
     }
-    paint_via2 $access_x $escape_y
-    if {abs($access_x - $track_x) > 1.0e-6} {
-        paint_m3_path [list [list $access_x $escape_y] [list $track_x $escape_y]]
+    paint_via2 $net $x $lane 1
+    if {abs($x - $track_x) > 1.0e-6} {
+        paint_m2_path [list [list $x $lane] [list $track_x $lane]] $net
     }
-    paint_via2 $track_x $escape_y
-    if {abs($escape_y - $lane) > 1.0e-6} {
-        paint_m2_path [list [list $track_x $escape_y] [list $track_x $lane]]
-    }
-    paint_via2 $track_x $lane 1
+    paint_via2 $net $track_x $lane 1
     return $track_x
 }
 
@@ -487,7 +504,7 @@ proc allocate_route_track {base net} {
             return [lindex $route_net_tracks($net) 0]
         }
     }
-    set pitch 0.8
+    set pitch 1.0
     for {set step 0} {$step < 200} {incr step} {
         if {$step == 0} {
             set candidates [list $base]
@@ -496,12 +513,12 @@ proc allocate_route_track {base net} {
             set candidates [list [expr {$base + $delta}] [expr {$base - $delta}]]
         }
         foreach candidate $candidates {
-            if {$candidate < 0.25 || $candidate > 145.11} {
+            if {$candidate < 130.0 || $candidate > 210.0} {
                 continue
             }
             set blocked 0
             foreach occupied [array names route_track_owner] {
-                if {abs($candidate - $occupied) < 0.65} {
+                if {abs($candidate - $occupied) < 1.0} {
                     set blocked 1
                     break
                 }
@@ -517,9 +534,7 @@ proc allocate_route_track {base net} {
 }
 
 proc make_power_stripe {name x} {
-    box ${x}um 0um ${x}um 225.76um
-    box width 1.2um
-    paint met4
+    paint_net_rect $name met4 [expr {$x - 0.6}] 0 [expr {$x + 0.6}] 225.76
     label $name FreeSans 0.25um -met4
     port make
     port use [expr {$name eq "VGND" ? "ground" : "power"}]
@@ -569,87 +584,61 @@ proc collect_top_pad_endpoints {} {
 }
 
 proc route_global_nets {} {
-    global endpoints res_group_global_bbox mimcap_global_bbox route_track_owner route_net_tracks
+    global endpoints route_track_owner route_net_tracks route_content_top
     array unset route_track_owner
     array set route_track_owner {}
     array unset route_net_tracks
     array set route_net_tracks {}
-    set lanes [dict create \
-        cz 211.0 VAPWR 210.25 VGND 209.5 nb 208.75 GATE 208.0 VDPWR 207.25]
-    set lane_y 185.0
-    set lane_pitch 0.75
     set nets [lsort [array names endpoints]]
-    foreach net $nets {
-        if {[dict exists $lanes $net]} {
-            continue
-        }
-        dict set lanes $net $lane_y
-        set lane_y [expr {$lane_y + $lane_pitch}]
+    set lane_start 185.0
+    set lane_pitch 0.8
+    if {$lane_start <= $route_content_top + 0.5} {
+        error [format "Routing lanes at %.2f um overlap layout content ending at %.2f um" \
+            $lane_start $route_content_top]
     }
-    if {$lane_y > 207.0} {
+    if {$lane_start + ([llength $nets] - 1) * $lane_pitch + 0.2 > 225.76} {
         error "Top-level signal routing lanes exceed the routing channel"
     }
     make_power_stripe VDPWR 8.28
     make_power_stripe VGND 11.04
     make_power_stripe VAPWR 13.80
+    set signal_index 0
+    set net_index 0
     foreach net $nets {
-        set lane [dict get $lanes $net]
-        set min_x 1.0e9
-        set max_x -1.0e9
+        set lane [expr {$lane_start + $net_index * $lane_pitch}]
+        incr net_index
+        if {$net in {VDPWR VGND VAPWR}} {
+            set track_x [dict get [dict create VDPWR 8.28 VGND 11.04 VAPWR 13.80] $net]
+        } else {
+            set track_x [allocate_route_track [expr {140.0 + $signal_index}] $net]
+            incr signal_index
+        }
         puts [format "Routing %s: %d endpoints at %.2f um" $net [llength $endpoints($net)] $lane]
         foreach endpoint $endpoints($net) {
             lassign $endpoint x y kind pin layer
             if {$kind eq "mos"} {
-                set track_base [x_access $x $pin mos]
-                set track_x [allocate_route_track $track_base $net]
-                set ax [route_mos_endpoint $x $y $pin $layer $lane $track_x]
+                set ax [route_mos_endpoint $x $y $pin $layer $lane $net $track_x]
             } elseif {$kind eq "resistor"} {
-                lassign $res_group_global_bbox rx1 ry1 rx2 ry2
-                set track_base $x
-                if {$pin in {nb GATE}} {
-                    set track_base [expr {$rx2 + 1.0}]
-                } elseif {$pin eq "VGND"} {
-                    set track_base [expr {$rx1 - 1.0}]
-                }
-                set track_x [allocate_route_track $track_base $net]
-                set ax [route_resistor_endpoint $x $y $pin $layer $lane $track_x]
+                set ax [route_resistor_endpoint $x $y $pin $layer $lane $track_x $net]
             } elseif {$kind eq "pad" && $y < 2.0} {
                 if {![regexp {^ua\[([0-3])\]$} $pin -> pad_index]} {
                     error "Unexpected bottom-edge pad $pin"
                 }
-                set ax [expr {137.0 + 2.0 * $pad_index}]
-                set escape_y [expr {1.3 + 0.8 * $pad_index}]
-                set track_x [allocate_route_track 142.5 $net]
-                set ax [route_bottom_pad $x $y $lane $ax $escape_y $track_x]
+                set ax [route_bottom_pad $x $y $lane $track_x $net]
             } elseif {$kind eq "capacitor"} {
-                lassign $mimcap_global_bbox cx1 cy1 cx2 cy2
-                set track_x [allocate_route_track [expr {$cx2 + 1.0}] "${net}_mim_$pin"]
-                set ax [route_mim_endpoint $x $y $pin $lane $track_x]
+                set ax [route_mim_endpoint $x $y $pin $lane $track_x $net]
             } else {
-                set track_base $x
-                if {$kind eq "pad" && $y > 220.0} {
-                    set track_base [expr {$x < 72.0 ? 2.5 : 142.5}]
-                }
-                set track_x [allocate_route_track $track_base $net]
-                set ax [route_metal_endpoint $x $y $layer $lane $track_x]
+                set ax [route_metal_endpoint $x $y $layer $lane $track_x $net]
             }
-            if {$ax < $min_x} {set min_x $ax}
-            if {$ax > $max_x} {set max_x $ax}
         }
-        if {$net eq "VDPWR"} {
-            set min_x [expr {min($min_x, 8.28)}]
-            set max_x [expr {max($max_x, 8.28)}]
-        } elseif {$net eq "VGND"} {
-            set min_x [expr {min($min_x, 11.04)}]
-            set max_x [expr {max($max_x, 11.04)}]
-        } elseif {$net eq "VAPWR"} {
-            set min_x [expr {min($min_x, 13.80)}]
-            set max_x [expr {max($max_x, 13.80)}]
-        }
-        paint_m3_path [list [list $min_x $lane] [list $max_x $lane]]
+        set lane_left [expr {min($track_x, 88.0)}]
+        set lane_right [expr {max($track_x, 88.0)}]
+        paint_m2_path [list [list $lane_left $lane] [list $lane_right $lane]] $net
+        paint_via2 $net $track_x $lane 1
+        paint_m3_path [list [list $track_x [expr {$lane - 0.4}]] [list $track_x $lane]] $net
         if {$net in {VDPWR VGND VAPWR}} {
             set stripe_x [dict get [dict create VDPWR 8.28 VGND 11.04 VAPWR 13.80] $net]
-            paint_via3 $stripe_x $lane
+            paint_via3 $net $stripe_x $lane
         }
     }
 }
@@ -716,6 +705,7 @@ proc logic_ports {cell} {
 
 proc build_logic_cell {cell} {
     global top endpoints logic_cell_width logic_cell_height
+    route_guard_reset
     array unset endpoints
     array set endpoints {}
     file delete -force "$cell.mag"
@@ -744,10 +734,9 @@ proc build_logic_cell {cell} {
         lappend prepared [list $name $pinmap $bbox]
     }
     set count [llength $prepared]
-    set cols [expr {int(ceil(sqrt($count)))}]
-    set col_pitch [expr {$max_width + 2.5}]
+    set cols $count
+    set col_pitch [expr {$max_width + 3.5}]
     set row_pitch [expr {$max_height + 2.5}]
-    set row_shift 3.0
     set x_origin [expr {1.5 - $min_x}]
     set y_origin [expr {1.5 - $min_y}]
     set max_shape_x 0.0
@@ -758,7 +747,7 @@ proc build_logic_cell {cell} {
         lassign $bbox x1 y1 x2 y2
         set row [expr {int($index / $cols)}]
         set col [expr {$index % $cols}]
-        set x [expr {$x_origin + $col * $col_pitch + (($row % 2) * $row_shift)}]
+        set x [expr {$x_origin + $col * $col_pitch}]
         set y [expr {$y_origin + $row * $row_pitch}]
         place_existing_mos $name $x $y $pinmap
         set shape_right [expr {$x + $x2}]
@@ -778,7 +767,7 @@ proc build_logic_cell {cell} {
         set max_track -1.0e9
         foreach endpoint $endpoints($net) {
             lassign $endpoint x y kind pin layer
-            set ax [route_mos_endpoint $x $y $pin $layer $lane]
+            set ax [route_mos_endpoint $x $y $pin $layer $lane $net]
             if {$ax < $min_track} {set min_track $ax}
             if {$ax > $max_track} {set max_track $ax}
         }
@@ -788,10 +777,10 @@ proc build_logic_cell {cell} {
             if {$port_x < $min_track} {set min_track $port_x}
             if {$port_x > $max_track} {set max_track $port_x}
         }
-        paint_rect met3 [expr {$min_track - 0.20}] [expr {$lane - 0.20}] [expr {$max_track + 0.20}] [expr {$lane + 0.20}]
+        paint_net_rect $net met2 [expr {$min_track - 0.15}] [expr {$lane - 0.15}] [expr {$max_track + 0.15}] [expr {$lane + 0.15}]
         if {$port_index >= 0} {
             box ${port_x}um ${lane}um
-            label $net FreeSans 0.25u -met3
+            label $net FreeSans 0.25u -met2
             port make
             if {$net in {VPWR VAPWR VDPWR}} {
                 port use power
@@ -844,23 +833,23 @@ proc top_logic_instances {} {
 
 proc top_analog_devices {} {
     return [list \
+        [list XMTD n 1 0.5 CT ilimb_h VGND VGND] \
+        [list XMTS p 1 8 ts pb VAPWR VAPWR] \
+        [list XMTSW p 1 0.5 CT ilimb_h ts VAPWR] \
         [list XMB0 n 2 1 nb nb VGND VGND] \
         [list XMB1 n 2 1 pb nb VGND VGND] \
         [list XMB2 p 2 4 pb pb VAPWR VAPWR] \
         [list XMT n 1 1 tail nb VGND VGND] \
-        [list XM1 n 20 2 d1 SNS_A tail VGND] \
-        [list XM2 n 20 2 out1 SNS_B tail VGND] \
         [list XM3 p 4 2 d1 d1 VAPWR VAPWR] \
         [list XM4 p 4 2 out1 d1 VAPWR VAPWR] \
+        [list XM1 n 20 2 d1 SNS_A tail VGND] \
+        [list XM2 n 20 2 out1 SNS_B tail VGND] \
         [list XM6 p 40 1 GATE out1 VAPWR VAPWR] \
         [list XM7 n 40 1 GATE nb VGND VGND] \
         [list XMEN p 2 0.5 out1 en VAPWR VAPWR] \
         [list XMPD n 5 0.5 GATE enb VGND VGND] \
         [list XM6R p 4 1 det out1 VAPWR VAPWR] \
-        [list XM7R n 8 1 det nb VGND VGND] \
-        [list XMTS p 1 8 ts pb VAPWR VAPWR] \
-        [list XMTSW p 1 0.5 CT ilimb_h ts VAPWR] \
-        [list XMTD n 1 0.5 CT ilimb_h VGND VGND]]
+        [list XM7R n 8 1 det nb VGND VGND]]
 }
 
 proc place_logic_cell {cell x y} {
@@ -882,12 +871,12 @@ proc place_logic_block {} {
         lassign $spec inst cell pinmap
         set width $logic_cell_width($cell)
         set height $logic_cell_height($cell)
-        if {$x + $width > 141.0} {
+        if {$x + $width > 125.0} {
             set x 15.0
             set y [expr {$y + $row_height + $gap_y}]
             set row_height 0.0
         }
-        if {$x + $width > 141.0 || $y + $height > 220.0} {
+        if {$x + $width > 125.0 || $y + $height > 220.0} {
             error "Logic-cell placement exceeds the 1x2 tile"
         }
         place_logic_cell $cell $x $y
@@ -901,7 +890,7 @@ proc place_logic_block {} {
 }
 
 proc place_analog_devices {logic_bottom} {
-    global top endpoints
+    global top endpoints analog_start_y
     array unset endpoints
     array set endpoints {}
     set devices [top_analog_devices]
@@ -915,9 +904,10 @@ proc place_analog_devices {logic_bottom} {
     }
     set x 15.0
     set y [expr {$logic_bottom + 3.0}]
+    set analog_start_y $y
     set row_height 0.0
     set left 15.0
-    set right 141.0
+    set right 130.0
     set bottom 220.0
     set gap_x 2.5
     set gap_y 2.5
@@ -942,18 +932,25 @@ proc place_analog_devices {logic_bottom} {
 }
 
 proc place_resistor_group {analog_bottom} {
-    global top res_group_global_bbox
+    global top analog_start_y res_group_global_bbox res_group_local_m3_obstacles res_group_global_m3_obstacles
     make_res_group
     set bbox [cell_bbox res_group.mag]
     lassign $bbox x1 y1 x2 y2
-    set x [expr {15.0 - $x1}]
-    set y [expr {$analog_bottom + 3.0 - $y1}]
-    if {$x + $x2 > 141.0 || $y + $y2 > 220.0} {
+    set x [expr {145.0 - $x1}]
+    set y [expr {$analog_start_y - 5.0 - $y1}]
+    if {$x + $x2 > 220.0 || $y + $y2 > 220.0} {
         error "Resistor-group placement exceeds the 1x2 tile"
     }
     set res_group_global_bbox [list \
         [expr {$x + $x1}] [expr {$y + $y1}] \
         [expr {$x + $x2}] [expr {$y + $y2}]]
+    set res_group_global_m3_obstacles {}
+    foreach obstacle $res_group_local_m3_obstacles {
+        lassign $obstacle net layer ox1 oy1 ox2 oy2
+        lappend res_group_global_m3_obstacles [list $net $layer \
+            [expr {$x + $ox1}] [expr {$y + $oy1}] \
+            [expr {$x + $ox2}] [expr {$y + $oy2}]]
+    }
     box 0 0 0 0
     getcell res_group child 0 0 parent [expr {round($x * 200)}] [expr {round($y * 200)}]
     foreach {pin net} {VAPWR VAPWR nb nb cz cz GATE GATE VGND VGND} {
@@ -976,14 +973,14 @@ proc make_mim_cap {} {
 }
 
 proc place_mim_cap {analog_bottom} {
-    global top mimcap_global_bbox
+    global top analog_start_y mimcap_global_bbox
     set res_bbox [cell_bbox res_group.mag]
     lassign $res_bbox rx1 ry1 rx2 ry2
     set bbox [make_mim_cap]
     lassign $bbox x1 y1 x2 y2
-    set x [expr {15.0 + ($rx2 - $rx1) + 3.0 - $x1}]
-    set y [expr {$analog_bottom + 3.0 - $y1}]
-    if {$x + $x2 > 141.0 || $y + $y2 > 220.0} {
+    set x [expr {145.0 + ($rx2 - $rx1) + 3.0 - $x1}]
+    set y [expr {$analog_start_y - $y1}]
+    if {$x + $x2 > 220.0 || $y + $y2 > 220.0} {
         error "MIM-capacitor placement exceeds the 1x2 tile"
     }
     box 0 0 0 0
@@ -1021,7 +1018,18 @@ if {$layout_stage in {mim routing}} {
     place_mim_cap $analog_bottom
 }
 if {$layout_stage eq "routing"} {
+    set route_content_top $analog_bottom
+    if {[info exists res_group_global_bbox]} {
+        set route_content_top [expr {max($route_content_top, [lindex $res_group_global_bbox 3])}]
+    }
+    if {[info exists mimcap_global_bbox]} {
+        set route_content_top [expr {max($route_content_top, [lindex $mimcap_global_bbox 3])}]
+    }
     save "$top.mag"
+    route_guard_reset
+    foreach obstacle $res_group_global_m3_obstacles {
+        route_guard_register {*}$obstacle
+    }
     collect_logic_endpoints
     collect_top_pad_endpoints
     route_global_nets
