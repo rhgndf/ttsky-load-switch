@@ -2752,7 +2752,7 @@ proc make_mim_cap {} {
     load $cell
     box 0 0 0 0
     set params [dict merge [sky130::sky130_fd_pr__cap_mim_m3_1_defaults] \
-        [dict create w 38 l 38 doports 1 term_t C1 term_b C2]]
+        [dict create w 38 l 38 doports 1 term_t C2 term_b C1]]
     sky130::sky130_fd_pr__cap_mim_m3_1_draw $params
     save "$cell.mag"
     load $top
