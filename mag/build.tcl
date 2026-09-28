@@ -72,6 +72,13 @@ proc route_via2_shapes {x y} {
         [list via2 [expr {$x - 0.14}] [expr {$y - 0.14}] [expr {$x + 0.14}] [expr {$y + 0.14}]]]
 }
 
+proc route_via1_shapes {x y} {
+    return [list \
+        [list met1 [expr {$x - 0.18}] [expr {$y - 0.13}] [expr {$x + 0.18}] [expr {$y + 0.13}]] \
+        [list met2 [expr {$x - 0.13}] [expr {$y - 0.18}] [expr {$x + 0.13}] [expr {$y + 0.18}]] \
+        [list via1 [expr {$x - 0.13}] [expr {$y - 0.13}] [expr {$x + 0.13}] [expr {$y + 0.13}]]]
+}
+
 proc route_track_shapes {mode x args} {
     set shapes {}
     if {$mode eq "global"} {
@@ -130,6 +137,52 @@ proc route_track_shapes {mode x args} {
         lappend shapes [list met2 [expr {min($x, $global_x) - 0.15}] [expr {$lane - 0.15}] \
             [expr {max($x, $global_x) + 0.15}] [expr {$lane + 0.15}]]
         lappend shapes {*}[route_via2_shapes $global_x $lane]
+    } elseif {$mode eq "local_m3"} {
+        lassign $args source_y lane source_x source_layer global_x escape_y
+        lappend shapes {*}[route_via2_shapes $source_x $source_y]
+        if {abs($source_y - $escape_y) > 1.0e-6} {
+            lappend shapes [list met3 [expr {$source_x - 0.2}] \
+                [expr {min($source_y, $escape_y) - 0.2}] \
+                [expr {$source_x + 0.2}] \
+                [expr {max($source_y, $escape_y) + 0.2}]]
+        }
+        if {abs($source_x - $x) > 1.0e-6} {
+            lappend shapes [list met3 [expr {min($source_x, $x) - 0.2}] \
+                [expr {$escape_y - 0.2}] \
+                [expr {max($source_x, $x) + 0.2}] \
+                [expr {$escape_y + 0.2}]]
+        }
+        lappend shapes [list met3 [expr {$x - 0.2}] \
+            [expr {min($escape_y, $lane) - 0.2}] \
+            [expr {$x + 0.2}] \
+            [expr {max($escape_y, $lane) + 0.2}]]
+        lappend shapes {*}[route_via2_shapes $x $lane]
+        lappend shapes [list met2 [expr {min($x, $global_x) - 0.15}] \
+            [expr {$lane - 0.15}] \
+            [expr {max($x, $global_x) + 0.15}] \
+            [expr {$lane + 0.15}]]
+        lappend shapes {*}[route_via2_shapes $global_x $lane]
+    } elseif {$mode eq "local_m1"} {
+        lassign $args source_y lane source_x source_layer global_x escape_y
+        if {abs($source_y - $escape_y) > 1.0e-6} {
+            lappend shapes [list met1 [expr {$source_x - 0.15}] \
+                [expr {min($source_y, $escape_y) - 0.15}] \
+                [expr {$source_x + 0.15}] [expr {max($source_y, $escape_y) + 0.15}]]
+        }
+        lappend shapes [list met1 [expr {min($source_x, $x) - 0.15}] \
+            [expr {$escape_y - 0.15}] [expr {max($source_x, $x) + 0.15}] \
+            [expr {$escape_y + 0.15}]]
+        lappend shapes {*}[route_via1_shapes $source_x $source_y]
+        lappend shapes {*}[route_via1_shapes $x $escape_y]
+        lappend shapes {*}[route_via2_shapes $x $escape_y]
+        lappend shapes [list met3 [expr {$x - 0.2}] \
+            [expr {min($escape_y, $lane) - 0.2}] \
+            [expr {$x + 0.2}] [expr {max($escape_y, $lane) + 0.2}]]
+        lappend shapes {*}[route_via2_shapes $x $lane]
+        lappend shapes [list met2 [expr {min($x, $global_x) - 0.15}] \
+            [expr {$lane - 0.15}] [expr {max($x, $global_x) + 0.15}] \
+            [expr {$lane + 0.15}]]
+        lappend shapes {*}[route_via2_shapes $global_x $lane]
     } else {
         error "Unknown route-track mode $mode"
     }
@@ -187,8 +240,10 @@ proc allocate_route_track {base net mode args} {
         error [format "No free horizontal track remains for %s above %.2f um; last conflicts: %s" \
             $net $base [join $last_conflicts {; }]]
     }
-    if {$mode eq "local_escape"} {
+    if {$mode in {local_escape local_escape_m3 local_escape_m1}} {
         lassign $args source_y lane source_x source_layer global_x
+        set shape_mode [dict get [dict create \
+            local_escape local local_escape_m3 local_m3 local_escape_m1 local_m1] $mode]
         set escape_ys [list $source_y]
         set escape_pitch 0.8
         set max_steps [expr {max(ceil((225.0 - $source_y) / $escape_pitch), \
@@ -216,12 +271,14 @@ proc allocate_route_track {base net mode args} {
                     if {$x < 0.31 || $x > 145.05} {
                         continue
                     }
-                    set shapes [route_track_shapes local $x $source_y $lane \
+                    set shapes [route_track_shapes $shape_mode $x $source_y $lane \
                         $source_x $source_layer $global_x $escape_y]
                     if {![route_track_is_clear $net $shapes]} {
                         set last_conflicts $route_track_last_conflicts
                         if {[llength $rejection_samples] < 4 ||
                             (abs($x - 103.0) <= 1.0e-6 &&
+                             abs($escape_y - $source_y) <= 1.0e-6) ||
+                            ($net eq "RSTN" && $x >= 100.0 && $x <= 104.0 &&
                              abs($escape_y - $source_y) <= 1.0e-6)} {
                             lappend rejection_samples [format "x=%.2f y=%.2f: %s" \
                                 $x $escape_y [join [lrange $route_track_last_conflicts 0 5] {, }]]
@@ -703,8 +760,56 @@ proc route_metal_endpoint {x y layer lane track_x net} {
         error "Unsupported route endpoint layer $layer"
     }
     if {$source_layer eq "met2"} {
-        lassign [allocate_route_track $x $net local_escape \
-            $y $lane $x $source_layer $track_x] local_track escape_y
+        if {[catch {
+            lassign [allocate_route_track $x $net local_escape \
+                $y $lane $x $source_layer $track_x] local_track escape_y
+        } standard_error]} {
+            puts "Standard local escape failed for $net at [format %.3f $x],[format %.3f $y]: $standard_error"
+            if {![catch {
+                lassign [allocate_route_track $x $net local_escape_m1 \
+                    $y $lane $x $source_layer $track_x] local_track escape_y
+            } m1_error]} {
+                paint_via1 $net $x $y
+                if {abs($y - $escape_y) > 1.0e-6} {
+                    paint_net_rect $net met1 \
+                        [expr {$x - 0.15}] [expr {min($y, $escape_y) - 0.15}] \
+                        [expr {$x + 0.15}] [expr {max($y, $escape_y) + 0.15}]
+                }
+                paint_net_rect $net met1 \
+                    [expr {min($x, $local_track) - 0.15}] [expr {$escape_y - 0.15}] \
+                    [expr {max($x, $local_track) + 0.15}] [expr {$escape_y + 0.15}]
+                paint_via1 $net $local_track $escape_y
+                paint_via2 $net $local_track $escape_y 1
+                if {abs($escape_y - $lane) > 1.0e-6} {
+                    paint_m3_path [list [list $local_track $escape_y] [list $local_track $lane]] $net
+                }
+                paint_via2 $net $local_track $lane 1
+                if {abs($local_track - $track_x) > 1.0e-6} {
+                    paint_m2_path [list [list $local_track $lane] [list $track_x $lane]] $net
+                }
+                paint_via2 $net $track_x $lane 1
+                return $local_track
+            }
+            puts "M1 local escape failed for $net: $m1_error"
+            lassign [allocate_route_track $x $net local_escape_m3 \
+                $y $lane $x $source_layer $track_x] local_track escape_y
+            paint_via2 $net $x $y 1
+            if {abs($y - $escape_y) > 1.0e-6} {
+                paint_m3_path [list [list $x $y] [list $x $escape_y]] $net
+            }
+            if {abs($x - $local_track) > 1.0e-6} {
+                paint_m3_path [list [list $x $escape_y] [list $local_track $escape_y]] $net
+            }
+            if {abs($escape_y - $lane) > 1.0e-6} {
+                paint_m3_path [list [list $local_track $escape_y] [list $local_track $lane]] $net
+            }
+            paint_via2 $net $local_track $lane 1
+            if {abs($local_track - $track_x) > 1.0e-6} {
+                paint_m2_path [list [list $local_track $lane] [list $track_x $lane]] $net
+            }
+            paint_via2 $net $track_x $lane 1
+            return $local_track
+        }
         if {abs($y - $escape_y) > 1.0e-6} {
             paint_m2_path [list [list $x $y] [list $x $escape_y]] $net
         }
@@ -1212,7 +1317,7 @@ proc build_logic_cell {cell} {
         }
         set port_index [lsearch -exact $ports $net]
         if {$port_index >= 0} {
-            set port_x [expr {1.0 + 0.8 * $port_index}]
+            set port_x [expr {$cell eq "ls_lvshift" && $net eq "A" ? -0.8 : 1.0 + 0.8 * $port_index}]
             if {$port_x < $min_track} {set min_track $port_x}
             if {$port_x > $max_track} {set max_track $port_x}
         }
@@ -1331,16 +1436,88 @@ proc place_logic_block {} {
         lassign $spec inst cell pinmap
         set width $logic_cell_width($cell)
         set height $logic_cell_height($cell)
-        if {$inst eq "XN5"} {
-            set edge_x 49.0
-            set edge_y [expr {$y + max($row_height, $height) + $gap_y}]
-            if {$edge_x + $width > 125.0 || $edge_y + $height > 220.0} {
-                error "XN5 placement exceeds the 1x2 tile"
+        if {$inst eq "XN0"} {
+            set edge_x 82.0
+            set edge_y [expr {$y + 19.88}]
+            if {$edge_x + $width > 145.36 || $edge_y + $height > 220.0} {
+                error "XN0 placement exceeds the 1x2 tile"
             }
             place_logic_cell $cell $edge_x $edge_y
             set logic_instance_xy($inst) [list $edge_x $edge_y]
             set cell_bottom [expr {$edge_y + $height}]
             if {$cell_bottom > $max_bottom} {set max_bottom $cell_bottom}
+            if {$height > $row_height} {set row_height $height}
+            set x [expr {$x + $width + $gap_x}]
+            continue
+        }
+        if {$inst eq "XN1"} {
+            set edge_x 105.0
+            set edge_y $y
+            if {$edge_x + $width > 145.36 || $edge_y + $height > 220.0} {
+                error "XN1 placement exceeds the 1x2 tile"
+            }
+            place_logic_cell $cell $edge_x $edge_y
+            set logic_instance_xy($inst) [list $edge_x $edge_y]
+            set cell_bottom [expr {$edge_y + $height}]
+            if {$cell_bottom > $max_bottom} {set max_bottom $cell_bottom}
+            if {$height > $row_height} {set row_height $height}
+            set x [expr {$x + $width + $gap_x}]
+            continue
+        }
+        if {$inst eq "XN3" || $inst eq "XO0"} {
+            if {$inst eq "XN3"} {
+                set edge_x 52.0
+            } else {
+                set edge_x 84.0
+            }
+            set edge_y 88.3
+            if {$edge_x + $width > 145.36 || $edge_y + $height > 220.0} {
+                error "$inst placement exceeds the 1x2 tile"
+            }
+            place_logic_cell $cell $edge_x $edge_y
+            set logic_instance_xy($inst) [list $edge_x $edge_y]
+            set cell_bottom [expr {$edge_y + $height}]
+            if {$cell_bottom > $max_bottom} {set max_bottom $cell_bottom}
+            if {$height > $row_height} {set row_height $height}
+            set x [expr {$x + $width + $gap_x}]
+            continue
+        }
+        if {$inst eq "XN4"} {
+            set edge_x 96.0
+            set edge_y 70.83
+            if {$edge_x + $width > 145.36 || $edge_y + $height > 220.0} {
+                error "$inst placement exceeds the 1x2 tile"
+            }
+            place_logic_cell $cell $edge_x $edge_y
+            set logic_instance_xy($inst) [list $edge_x $edge_y]
+            set cell_bottom [expr {$edge_y + $height}]
+            if {$cell_bottom > $max_bottom} {set max_bottom $cell_bottom}
+            if {$height > $row_height} {set row_height $height}
+            set x [expr {$x + $width + $gap_x}]
+            continue
+        }
+        if {$inst eq "XI0"} {
+            set edge_x 115.0
+            set edge_y 88.3
+            if {$edge_x + $width > 145.36 || $edge_y + $height > 220.0} {
+                error "XI0 placement exceeds the 1x2 tile"
+            }
+            place_logic_cell $cell $edge_x $edge_y
+            set logic_instance_xy($inst) [list $edge_x $edge_y]
+            set cell_bottom [expr {$edge_y + $height}]
+            if {$cell_bottom > $max_bottom} {set max_bottom $cell_bottom}
+            if {$height > $row_height} {set row_height $height}
+            set x [expr {$x + $width + $gap_x}]
+            continue
+        }
+        if {$inst eq "XN5"} {
+            set edge_x 116.0
+            set edge_y 165.0
+            if {$edge_x + $width > 145.36 || $edge_y + $height > 220.0} {
+                error "XN5 placement exceeds the 1x2 tile"
+            }
+            place_logic_cell $cell $edge_x $edge_y
+            set logic_instance_xy($inst) [list $edge_x $edge_y]
             if {$height > $row_height} {set row_height $height}
             set x [expr {$x + $width + $gap_x}]
             continue
