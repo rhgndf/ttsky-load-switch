@@ -1926,10 +1926,6 @@ proc route_global_nets {} {
                         abs($candidate - 13.80) < 0.8} {
                         continue
                     }
-                    if {$kind in {logic mos} &&
-                        abs($candidate - $x) > 2.400001} {
-                        continue
-                    }
                     set colkey [format "%.3f" $candidate]
                     if {[info exists route_signal_column_owner($colkey)]} {
                         continue
@@ -1945,11 +1941,17 @@ proc route_global_nets {} {
                         }
                     }
                     set connected 0
+                    set escape_failures {}
                     foreach escape_record $local_escape_candidates {
                         lassign $escape_record escape_y escape_axis
                         set shapes [deterministic_stub_shapes $net $endpoint \
                             $candidate $lane $pad_escape_y $escape_y $escape_axis]
                         if {![route_track_is_clear $net $shapes]} {
+                            if {[llength $escape_failures] < 9} {
+                                lappend escape_failures [format "y=%.3f/%s: %s" \
+                                    $escape_y $escape_axis \
+                                    [join $route_track_last_conflicts {; }]]
+                            }
                             continue
                         }
                         lappend ranked [list [expr {abs($candidate - $x)}] \
@@ -1960,7 +1962,7 @@ proc route_global_nets {} {
                     }
                     if {!$connected && [llength $candidate_failures] < 8} {
                         lappend candidate_failures [format "x=%.3f %s" $candidate \
-                            [join $route_track_last_conflicts {; }]]
+                            [join $escape_failures { | }]]
                     }
                 }
                 if {$kind eq "capacitor" && $pin eq "C2"} {
