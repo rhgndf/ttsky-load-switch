@@ -153,7 +153,7 @@ proc make_res_group {} {
     lassign [label_center "$cell.mag" B resistor] bx by layer
     set body_route_x [expr {$x1 - 2.0}]
     route_res_body_contact $bx $by $body_route_x
-    for {set i 0} {$i < 4} {incr i} {
+    for {set i 0} {$i < 3} {incr i} {
         set xmid [expr {($r2x($i) + $r1x([expr {$i + 1}])) / 2.0}]
         paint_m2_path [list \
             [list $r2x($i) $r2y($i)] \
@@ -162,18 +162,24 @@ proc make_res_group {} {
             [list $r1x([expr {$i + 1}]) $r1y([expr {$i + 1}])]]
     }
     set top_port_y [expr {$y2 + 7.0}]
-    set bottom_port_y [expr {$y1 - 7.0}]
+    set nb_port_y [expr {$y1 - 7.0}]
+    set gate_port_y [expr {$y1 - 8.5}]
+    set body_port_y [expr {$y1 - 10.0}]
     paint_m2_path [list [list $r1x(0) $r1y(0)] [list $r1x(0) $top_port_y]]
+    paint_m2_path [list [list $r2x(3) $r2y(3)] [list $r2x(3) $nb_port_y]]
+    paint_m2_path [list [list $r1x(4) $r1y(4)] [list $r1x(4) [expr {$top_port_y + 2.0}]]]
     paint_rect via2 [expr {$r2x(4) - 0.16}] [expr {$r2y(4) - 0.16}] [expr {$r2x(4) + 0.16}] [expr {$r2y(4) + 0.16}]
     paint_rect met3 [expr {$r2x(4) - 0.22}] [expr {$r2y(4) - 0.22}] [expr {$r2x(4) + 0.22}] [expr {$r2y(4) + 0.22}]
-    paint_m3_path [list [list $r2x(4) $r2y(4)] [list $r2x(4) $bottom_port_y]]
+    paint_m3_path [list [list $r2x(4) $r2y(4)] [list $r2x(4) $gate_port_y]]
     paint_m3_path [list \
         [list $bx $by] \
         [list $body_route_x $by] \
-        [list $body_route_x $bottom_port_y] \
-        [list $r2x(4) $bottom_port_y]]
+        [list $body_route_x $body_port_y]]
     make_res_port_label VAPWR $r1x(0) $top_port_y power met2
-    make_res_port_label VGND $r2x(4) $bottom_port_y ground met3
+    make_res_port_label nb $r2x(3) $nb_port_y signal met2
+    make_res_port_label cz $r1x(4) [expr {$top_port_y + 2.0}] signal met2
+    make_res_port_label GATE $r2x(4) $gate_port_y signal met3
+    make_res_port_label VGND $body_route_x $body_port_y ground met3
     save "$cell.mag"
     load $top
 }
