@@ -1128,9 +1128,9 @@ proc collect_top_pad_endpoints {} {
     }
 }
 
-proc signal_column_reserved_for_endpoint {kind candidate} {
+proc signal_column_reserved_for_endpoint {kind candidate y} {
     global res_group_global_bbox mimcap_global_bbox
-    if {$kind ne "pad"} {
+    if {$kind ne "pad" || $y <= 223.0} {
         return 0
     }
     foreach bbox [list $res_group_global_bbox $mimcap_global_bbox] {
@@ -1942,7 +1942,7 @@ proc route_global_nets {} {
                         abs($candidate - 13.80) < 0.8} {
                         continue
                     }
-                    if {[signal_column_reserved_for_endpoint $kind $candidate]} {
+                    if {[signal_column_reserved_for_endpoint $kind $candidate $y]} {
                         continue
                     }
                     set colkey [format "%.3f" $candidate]
