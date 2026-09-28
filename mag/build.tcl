@@ -12,7 +12,7 @@ set layout_target top
 if {[info exists ::env(LAYOUT_TARGET)]} {
     set layout_target $::env(LAYOUT_TARGET)
 }
-if {$layout_stage ni {logic analog resistors}} {
+if {$layout_stage ni {logic analog resistors mim}} {
     error "Unknown LAYOUT_STAGE: $layout_stage"
 }
 if {$layout_target ni {top subckts}} {
@@ -593,6 +593,37 @@ proc place_resistor_group {analog_bottom} {
     getcell res_group child 0 0 parent [expr {round($x * 200)}] [expr {round($y * 200)}]
 }
 
+proc make_mim_cap {} {
+    global top
+    set cell XCC
+    file delete -force "$cell.mag"
+    load $cell
+    box 0 0 0 0
+    set params [dict merge [sky130::sky130_fd_pr__cap_mim_m3_1_defaults] \
+        [dict create w 38 l 38 doports 1 term_t C1 term_b C2]]
+    sky130::sky130_fd_pr__cap_mim_m3_1_draw $params
+    save "$cell.mag"
+    load $top
+    return [cell_bbox "$cell.mag"]
+}
+
+proc place_mim_cap {analog_bottom} {
+    global top
+    set res_bbox [cell_bbox res_group.mag]
+    lassign $res_bbox rx1 ry1 rx2 ry2
+    set bbox [make_mim_cap]
+    lassign $bbox x1 y1 x2 y2
+    set x [expr {15.0 + ($rx2 - $rx1) + 3.0 - $x1}]
+    set y [expr {$analog_bottom + 3.0 - $y1}]
+    if {$x + $x2 > 141.0 || $y + $y2 > 220.0} {
+        error "MIM-capacitor placement exceeds the 1x2 tile"
+    }
+    box 0 0 0 0
+    getcell XCC child 0 0 parent [expr {round($x * 200)}] [expr {round($y * 200)}]
+    add_net_pin XCC.mag $x $y C1 out1 capacitor
+    add_net_pin XCC.mag $x $y C2 cz capacitor
+}
+
 cd [file join $root mag]
 file mkdir $cell_gds_dir
 def read $template
@@ -610,11 +641,14 @@ if {$layout_target eq "subckts"} {
 
 set logic_bottom [place_logic_block]
 set analog_bottom $logic_bottom
-if {$layout_stage in {analog resistors}} {
+if {$layout_stage in {analog resistors mim}} {
     set analog_bottom [place_analog_devices $logic_bottom]
 }
-if {$layout_stage eq "resistors"} {
+if {$layout_stage in {resistors mim}} {
     place_resistor_group $analog_bottom
+}
+if {$layout_stage eq "mim"} {
+    place_mim_cap $analog_bottom
 }
 load $top
 select top cell
