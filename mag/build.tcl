@@ -710,6 +710,8 @@ proc transform_rect {x1 y1 x2 y2 rotation} {
 proc add_net_pin {path x y pin net kind {rotation 0}} {
     global endpoints route_endpoint_rects
     lassign [label_center $path $pin $kind] px py layer bx1 by1 bx2 by2
+    set local_px $px
+    set local_py $py
     lassign [transform_point $px $py $rotation] px py
     lassign [transform_rect $bx1 $by1 $bx2 $by2 $rotation] bx1 by1 bx2 by2
     set px [expr {$x + $px}]
@@ -723,8 +725,8 @@ proc add_net_pin {path x y pin net kind {rotation 0}} {
             [expr {$px - 0.085}] [expr {$py - 0.085}] \
             [expr {$px + 0.085}] [expr {$py + 0.085}]]
     } elseif {$kind eq "capacitor" && $pin eq "C2"} {
-        lassign [mim_c2_metal3_landing $path \
-            [expr {$px - $x}] [expr {$py - $y}]] x1 y1 x2 y2
+        lassign [mim_c2_metal3_landing $path $local_px $local_py] x1 y1 x2 y2
+        lassign [transform_rect $x1 $y1 $x2 $y2 $rotation] x1 y1 x2 y2
         lappend shapes [list $net met3 \
             [expr {$x + $x1}] [expr {$y + $y1}] \
             [expr {$x + $x2}] [expr {$y + $y2}]]
@@ -2742,34 +2744,39 @@ proc make_mim_cap {} {
 
 proc place_mim_cap {base_y} {
     global top mimcap_global_bbox mimcap_global_xy res_group_global_bbox
-    global mimcap_global_m3_obstacle mimcap_global_m4_obstacle
+    global mimcap_global_rotation mimcap_global_m3_obstacle mimcap_global_m4_obstacle
     set res_bbox [cell_bbox res_group.mag]
     lassign $res_bbox rx1 ry1 rx2 ry2
     set bbox [make_mim_cap]
     lassign $bbox x1 y1 x2 y2
-    set x [expr {[lindex $res_group_global_bbox 2] + 3.0 - $x1}]
-    set y [expr {$base_y - $y1}]
-    set xlo [expr {$x + $x1}]
-    set ylo [expr {$y + $y1}]
-    set xhi [expr {$x + $x2}]
-    set yhi [expr {$y + $y2}]
+    set rotation 180
+    lassign [transform_rect $x1 $y1 $x2 $y2 $rotation] bx1 by1 bx2 by2
+    set x [expr {[lindex $res_group_global_bbox 2] + 3.0 - $bx1}]
+    set y [expr {$base_y - $by1}]
+    set xlo [expr {$x + $bx1}]
+    set ylo [expr {$y + $by1}]
+    set xhi [expr {$x + $bx2}]
+    set yhi [expr {$y + $by2}]
     if {$xlo < 0.0 || $ylo < 0.0 || $xhi > 145.36 || $yhi > 225.76} {
         error "MIM-capacitor placement exceeds the 1x2 tile"
     }
     box 0 0 0 0
-    getcell XCC child 0 0 parent ${x}um ${y}um
+    getcell XCC child 0 0 parent ${x}um ${y}um $rotation 0 0
     set mimcap_global_bbox [list $xlo $ylo $xhi $yhi]
     set mimcap_global_xy [list $x $y]
-set mimcap_global_m3_obstacle [list out1 met3 $xlo [expr {$y + $y1}] \
-        [expr {$x + 19.66}] [expr {$y + $y2}]]
+    set mimcap_global_rotation $rotation
+    lassign [transform_rect $x1 $y1 19.66 $y2 $rotation] m3x1 m3y1 m3x2 m3y2
+    set mimcap_global_m3_obstacle [list out1 met3 \
+        [expr {$x + $m3x1}] [expr {$y + $m3y1}] \
+        [expr {$x + $m3x2}] [expr {$y + $m3y2}]]
     set mimcap_global_m4_obstacle [list cz met4 $xlo $ylo $xhi $yhi]
 }
 
 proc collect_mim_endpoints {} {
-    global mimcap_global_xy
+    global mimcap_global_rotation mimcap_global_xy
     lassign $mimcap_global_xy x y
-    add_net_pin XCC.mag $x $y C1 out1 capacitor
-    add_net_pin XCC.mag $x $y C2 cz capacitor
+    add_net_pin XCC.mag $x $y C1 out1 capacitor $mimcap_global_rotation
+    add_net_pin XCC.mag $x $y C2 cz capacitor $mimcap_global_rotation
 }
 
 cd [file join $root mag]
