@@ -1317,7 +1317,7 @@ proc build_logic_cell {cell} {
         }
         set port_index [lsearch -exact $ports $net]
         if {$port_index >= 0} {
-            set port_x [expr {$cell eq "ls_lvshift" && $net eq "A" ? -0.8 : 1.0 + 0.8 * $port_index}]
+            set port_x [expr {$cell eq "ls_lvshift" && $net eq "A" ? -4.4 : 1.0 + 0.8 * $port_index}]
             if {$port_x < $min_track} {set min_track $port_x}
             if {$port_x > $max_track} {set max_track $port_x}
         }
