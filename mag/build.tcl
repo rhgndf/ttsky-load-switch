@@ -12,7 +12,7 @@ set layout_target top
 if {[info exists ::env(LAYOUT_TARGET)]} {
     set layout_target $::env(LAYOUT_TARGET)
 }
-if {$layout_stage ni {logic analog}} {
+if {$layout_stage ni {logic analog resistors}} {
     error "Unknown LAYOUT_STAGE: $layout_stage"
 }
 if {$layout_target ni {top subckts}} {
@@ -22,6 +22,68 @@ if {$layout_target ni {top subckts}} {
 proc paint_rect {layer x1 y1 x2 y2} {
     box ${x1}um ${y1}um ${x2}um ${y2}um
     paint $layer
+}
+
+proc paint_m2_path {points} {
+    set width 0.4
+    for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
+        lassign [lindex $points $i] x1 y1
+        lassign [lindex $points [expr {$i + 1}]] x2 y2
+        if {abs($x1 - $x2) < 1.0e-6} {
+            paint_rect met2 [expr {$x1 - $width / 2.0}] [expr {min($y1, $y2) - $width / 2.0}] \
+                [expr {$x1 + $width / 2.0}] [expr {max($y1, $y2) + $width / 2.0}]
+        } elseif {abs($y1 - $y2) < 1.0e-6} {
+            paint_rect met2 [expr {min($x1, $x2) - $width / 2.0}] [expr {$y1 - $width / 2.0}] \
+                [expr {max($x1, $x2) + $width / 2.0}] [expr {$y1 + $width / 2.0}]
+        } else {
+            error "Resistor route is not Manhattan"
+        }
+    }
+}
+
+proc paint_m3_path {points} {
+    set width 0.4
+    for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
+        lassign [lindex $points $i] x1 y1
+        lassign [lindex $points [expr {$i + 1}]] x2 y2
+        if {abs($x1 - $x2) < 1.0e-6} {
+            paint_rect met3 [expr {$x1 - $width / 2.0}] [expr {min($y1, $y2) - $width / 2.0}] \
+                [expr {$x1 + $width / 2.0}] [expr {max($y1, $y2) + $width / 2.0}]
+        } elseif {abs($y1 - $y2) < 1.0e-6} {
+            paint_rect met3 [expr {min($x1, $x2) - $width / 2.0}] [expr {$y1 - $width / 2.0}] \
+                [expr {max($x1, $x2) + $width / 2.0}] [expr {$y1 + $width / 2.0}]
+        } else {
+            error "Resistor route is not Manhattan"
+        }
+    }
+}
+
+proc make_res_port_label {name x y use layer} {
+    box ${x}um ${y}um ${x}um ${y}um
+    label $name FreeSans 0.25u -$layer
+    port make
+    port use $use
+    port class bidirectional
+    port connections n s e w
+}
+
+proc route_res_contact {x y} {
+    paint_rect locali [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+    paint_rect mcon [expr {$x - 0.16}] [expr {$y - 0.16}] [expr {$x + 0.16}] [expr {$y + 0.16}]
+    paint_rect met1 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+    paint_rect via1 [expr {$x - 0.16}] [expr {$y - 0.16}] [expr {$x + 0.16}] [expr {$y + 0.16}]
+    paint_rect met2 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+}
+
+proc route_res_body_contact {x y exit_x} {
+    paint_rect locali [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+    paint_rect mcon [expr {$x - 0.16}] [expr {$y - 0.16}] [expr {$x + 0.16}] [expr {$y + 0.16}]
+    paint_rect met1 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+    paint_rect met1 [expr {min($x, $exit_x) - 0.2}] [expr {$y - 0.2}] [expr {max($x, $exit_x) + 0.2}] [expr {$y + 0.2}]
+    paint_rect via1 [expr {$exit_x - 0.16}] [expr {$y - 0.16}] [expr {$exit_x + 0.16}] [expr {$y + 0.16}]
+    paint_rect met2 [expr {$exit_x - 0.22}] [expr {$y - 0.22}] [expr {$exit_x + 0.22}] [expr {$y + 0.22}]
+    paint_rect via2 [expr {$exit_x - 0.16}] [expr {$y - 0.16}] [expr {$exit_x + 0.16}] [expr {$y + 0.16}]
+    paint_rect met3 [expr {$exit_x - 0.22}] [expr {$y - 0.22}] [expr {$exit_x + 0.22}] [expr {$y + 0.22}]
 }
 
 proc make_mos {parent name type w l} {
@@ -37,6 +99,83 @@ proc make_mos {parent name type w l} {
     }
     save $cellpath
     load $parent
+}
+
+proc make_res_group {} {
+    global top
+    set cell res_group
+    file delete -force "$cell.mag"
+    load $cell
+    box 0 0 0 0
+    set newdict [dict create res_type xpres end_type xpc end_contact_type xpc \
+        plus_diff_type psd plus_contact_type psc sub_type psub guard_sub_surround 0 \
+        end_surround [dict get $sky130::ruleset poly_surround] end_spacing 0.48 \
+        end_to_end_space 0.52 end_contact_size 0.19 res_to_cont 0.575 \
+        res_to_endcont 1.985 res_spacing 0.48 res_diff_spacing 0.48 \
+        mask_clearance 0.52 overlap_compress 0.36 l_delta -0.08]
+    set base_params [dict merge $sky130::ruleset $newdict]
+    set measure_params [dict merge $base_params [dict create w 0.69 l 40]]
+    tech lock *
+    box 0 0 0 0
+    set bbox [sky130::res_device $measure_params]
+    tech unlock *
+    set fw [expr {[lindex $bbox 2] - [lindex $bbox 0]}]
+    set fh [expr {[lindex $bbox 3] - [lindex $bbox 1]}]
+    set dx [expr {$fw + 0.48}]
+    set corex [expr {4 * $dx + $fw}]
+    set gx [expr {$corex + 2 * (0.48 + 0.0) + [dict get $base_params contact_size]}]
+    set gy [expr {$fh + 2 * (0.48 + 0.0) + [dict get $base_params contact_size]}]
+    set guard_params [dict merge $base_params [dict create bulk B]]
+    sky130::guard_ring $gx $gy $guard_params
+    for {set i 0} {$i < 5} {incr i} {
+        set length 40
+        if {$i == 4} {set length 2}
+        set params [dict merge $base_params [dict create \
+            w 0.69 l $length doports 1 term_t R1_$i term_b R2_$i]]
+        set center_x [expr {($i - 2) * $dx}]
+        box ${center_x}um 0um ${center_x}um 0um
+        sky130::res_device $params
+    }
+    save "$cell.mag"
+    load $cell
+    set bbox [cell_bbox "$cell.mag"]
+    lassign $bbox x1 y1 x2 y2
+    array set r1x {}
+    array set r1y {}
+    array set r2x {}
+    array set r2y {}
+    for {set i 0} {$i < 5} {incr i} {
+        lassign [label_center "$cell.mag" "R1_$i" resistor] r1x($i) r1y($i) layer
+        lassign [label_center "$cell.mag" "R2_$i" resistor] r2x($i) r2y($i) layer
+        route_res_contact $r1x($i) $r1y($i)
+        route_res_contact $r2x($i) $r2y($i)
+    }
+    lassign [label_center "$cell.mag" B resistor] bx by layer
+    set body_route_x [expr {$x1 - 2.0}]
+    route_res_body_contact $bx $by $body_route_x
+    for {set i 0} {$i < 4} {incr i} {
+        set xmid [expr {($r2x($i) + $r1x([expr {$i + 1}])) / 2.0}]
+        paint_m2_path [list \
+            [list $r2x($i) $r2y($i)] \
+            [list $xmid $r2y($i)] \
+            [list $xmid $r1y([expr {$i + 1}])] \
+            [list $r1x([expr {$i + 1}]) $r1y([expr {$i + 1}])]]
+    }
+    set top_port_y [expr {$y2 + 7.0}]
+    set bottom_port_y [expr {$y1 - 7.0}]
+    paint_m2_path [list [list $r1x(0) $r1y(0)] [list $r1x(0) $top_port_y]]
+    paint_rect via2 [expr {$r2x(4) - 0.16}] [expr {$r2y(4) - 0.16}] [expr {$r2x(4) + 0.16}] [expr {$r2y(4) + 0.16}]
+    paint_rect met3 [expr {$r2x(4) - 0.22}] [expr {$r2y(4) - 0.22}] [expr {$r2x(4) + 0.22}] [expr {$r2y(4) + 0.22}]
+    paint_m3_path [list [list $r2x(4) $r2y(4)] [list $r2x(4) $bottom_port_y]]
+    paint_m3_path [list \
+        [list $bx $by] \
+        [list $body_route_x $by] \
+        [list $body_route_x $bottom_port_y] \
+        [list $r2x(4) $bottom_port_y]]
+    make_res_port_label VAPWR $r1x(0) $top_port_y power met2
+    make_res_port_label VGND $r2x(4) $bottom_port_y ground met3
+    save "$cell.mag"
+    load $top
 }
 
 proc cell_bbox {path} {
@@ -437,6 +576,21 @@ proc place_analog_devices {logic_bottom} {
         set x [expr {$x + $width + $gap_x}]
         if {$height > $row_height} {set row_height $height}
     }
+    return [expr {$y + $row_height}]
+}
+
+proc place_resistor_group {analog_bottom} {
+    global top
+    make_res_group
+    set bbox [cell_bbox res_group.mag]
+    lassign $bbox x1 y1 x2 y2
+    set x [expr {15.0 - $x1}]
+    set y [expr {$analog_bottom + 3.0 - $y1}]
+    if {$x + $x2 > 141.0 || $y + $y2 > 220.0} {
+        error "Resistor-group placement exceeds the 1x2 tile"
+    }
+    box 0 0 0 0
+    getcell res_group child 0 0 parent [expr {round($x * 200)}] [expr {round($y * 200)}]
 }
 
 cd [file join $root mag]
@@ -455,8 +609,12 @@ if {$layout_target eq "subckts"} {
 }
 
 set logic_bottom [place_logic_block]
-if {$layout_stage eq "analog"} {
-    place_analog_devices $logic_bottom
+set analog_bottom $logic_bottom
+if {$layout_stage in {analog resistors}} {
+    set analog_bottom [place_analog_devices $logic_bottom]
+}
+if {$layout_stage eq "resistors"} {
+    place_resistor_group $analog_bottom
 }
 load $top
 select top cell
