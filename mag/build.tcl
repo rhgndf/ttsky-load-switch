@@ -21,6 +21,7 @@ if {$layout_target ni {top subckts}} {
 
 set route_guard_rects {}
 set route_endpoint_rects {}
+set route_guard_enforce_die 0
 array set route_guard_spacing {li 0.17 locali 0.17 met1 0.14 met2 0.14 met3 0.3 met4 0.3}
 proc route_guard_reset {} {
     set ::route_guard_rects {}
@@ -362,6 +363,18 @@ proc allocate_route_track {base net mode args} {
 }
 
 proc paint_net_rect {net layer x1 y1 x2 y2} {
+    global route_guard_enforce_die
+    if {$route_guard_enforce_die} {
+        set xlo [expr {min($x1, $x2)}]
+        set ylo [expr {min($y1, $y2)}]
+        set xhi [expr {max($x1, $x2)}]
+        set yhi [expr {max($y1, $y2)}]
+        if {$xlo < -1.0e-6 || $ylo < -1.0e-6 ||
+            $xhi > 145.36 + 1.0e-6 || $yhi > 225.76 + 1.0e-6} {
+            error [format "route outside 1x2 die: %s %s {%.3f %.3f %.3f %.3f}" \
+                $net $layer $xlo $ylo $xhi $yhi]
+        }
+    }
     route_guard_register $net $layer $x1 $y1 $x2 $y2
     box ${x1}um ${y1}um ${x2}um ${y2}um
     paint $layer
@@ -1386,40 +1399,54 @@ proc route_logic_row_supplies {} {
             }
             lassign $logic_instance_xy($inst) x y
             lassign $logic_cell_bbox($cell) bx1 by1 bx2 by2
-            set exit_x_by_net [dict create \
-                VAPWR [expr {$x + $bx2 + 0.35}] \
-                VDPWR [expr {$x + $bx2 + 0.80}] \
-                VGND [expr {$x + $bx2 + 1.25}]]
+            set exit_offset_by_net [dict create VAPWR 0.35 VDPWR 0.80 VGND 1.25]
             foreach {pin net} $pinmap {
                 if {$net ni {VAPWR VDPWR VGND}} {
                     continue
                 }
                 lassign [label_center "$cell.mag" $pin logic] px py layer
                 set endpoint [list [expr {$x + $px}] [expr {$y + $py}] logic $pin $layer]
+                set exit_offset [dict get $exit_offset_by_net $net]
+                set right_exit [expr {$x + $bx2 + $exit_offset}]
+                if {$right_exit > 145.05} {
+                    set right_exit 145.05
+                }
+                set exit_candidates [list \
+                    $right_exit \
+                    [expr {$x + $bx1 - $exit_offset}]]
                 route_logic_row_supply_endpoint $endpoint \
-                    [dict get $rail_y $net] $net [dict get $exit_x_by_net $net]
+                    [dict get $rail_y $net] $net $exit_candidates
             }
         }
     }
     return $vgnd_y
 }
 
-proc route_logic_row_supply_endpoint {endpoint rail_y net exit_x} {
+proc route_logic_row_supply_endpoint {endpoint rail_y net exit_candidates} {
     lassign $endpoint x y kind pin layer
     if {$kind ne "logic" || $layer ne "met1"} {
         error "Unsupported logic-row supply endpoint $kind/$layer for $net"
     }
-    set shapes [logic_path_shapes met1 0.14 \
-        [list [list $x $y] [list $exit_x $y]]]
-    lappend shapes {*}[viali_contact_shapes $exit_x $y]
-    lappend shapes {*}[logic_path_shapes li 0.17 \
-        [list [list $exit_x $y] [list $exit_x $rail_y]]]
-    lappend shapes {*}[viali_contact_shapes $exit_x $rail_y]
-    lassign [route_guard_shapes_available $net $shapes] available conflict
-    if {!$available} {
-        error "No clear logic-row supply drop for $net at [format %.3f %.3f $x $y]: $conflict"
+    set last_conflict ""
+    foreach exit_x $exit_candidates {
+        if {$exit_x < 0.5 || $exit_x > 145.05} {
+            continue
+        }
+        set shapes [logic_path_shapes met1 0.14 \
+            [list [list $x $y] [list $exit_x $y]]]
+        lappend shapes {*}[viali_contact_shapes $exit_x $y]
+        lappend shapes {*}[logic_path_shapes li 0.17 \
+            [list [list $exit_x $y] [list $exit_x $rail_y]]]
+        lappend shapes {*}[viali_contact_shapes $exit_x $rail_y]
+        lassign [route_guard_shapes_available $net $shapes] available conflict
+        if {$available} {
+            paint_logic_route_shapes $net $shapes
+            return
+        }
+        set last_conflict $conflict
     }
-    paint_logic_route_shapes $net $shapes
+    set location [format "%.3f,%.3f" $x $y]
+    error "No clear logic-row supply drop for $net at $location: $last_conflict"
 }
 
 proc route_analog_supply_endpoint {endpoint rail_y net} {
@@ -1795,6 +1822,8 @@ proc route_global_nets {} {
     global route_track_last_conflicts
     global channel_start channel_end mimcap_global_bbox res_group_global_bbox
     global logic_row_members logic_row_bounds
+    global route_guard_enforce_die
+    set route_guard_enforce_die 1
     array unset route_track_owner
     array set route_track_owner {}
     array unset route_net_tracks
@@ -2437,10 +2466,18 @@ proc build_logic_cell {cell} {
     set supply_top 2.9
     set cell_height [expr {max($max_device_y, $signal_top, $supply_top) + 1.0}]
     save "$cell.mag"
-    set logic_cell_bbox($cell) [cell_bbox "$cell.mag"]
+    lassign [cell_bbox "$cell.mag"] bbox_xlo bbox_ylo bbox_xhi bbox_yhi
+    foreach rect $route_guard_rects {
+        lassign $rect net layer x1 y1 x2 y2
+        if {$x1 < $bbox_xlo} {set bbox_xlo $x1}
+        if {$y1 < $bbox_ylo} {set bbox_ylo $y1}
+        if {$x2 > $bbox_xhi} {set bbox_xhi $x2}
+        if {$y2 > $bbox_yhi} {set bbox_yhi $y2}
+    }
+    set logic_cell_bbox($cell) [list $bbox_xlo $bbox_ylo $bbox_xhi $bbox_yhi]
     set logic_cell_route_rects($cell) $route_guard_rects
-    set logic_cell_width($cell) $cell_width
-    set logic_cell_height($cell) $cell_height
+    set logic_cell_width($cell) [expr {$bbox_xhi - $bbox_xlo}]
+    set logic_cell_height($cell) [expr {$bbox_yhi - $bbox_ylo}]
     load $top
     return [list $cell_width $cell_height]
 }
@@ -2532,6 +2569,7 @@ proc place_logic_block {start_y} {
     array set logic_row_bounds {}
     set row 0
     set row_x 15.0
+    set row_x_limit 143.80
     set row_y $start_y
     set row_height 0.0
     set row_type ""
@@ -2556,7 +2594,7 @@ proc place_logic_block {start_y} {
             set row_xhi -1.0e9
             set row_yhi -1.0e9
         }
-        if {$row_x + $width > 145.05 && [info exists logic_row_members($row)]} {
+        if {$row_x + $width > $row_x_limit && [info exists logic_row_members($row)]} {
             set row_y [expr {$row_y + $row_height + 2.8}]
             set row_x 15.0
             incr row
@@ -2567,14 +2605,16 @@ proc place_logic_block {start_y} {
             set row_xhi -1.0e9
             set row_yhi -1.0e9
         }
-        if {$row_x + $width > 145.05} {
+        if {$row_x + $width > $row_x_limit} {
             error [format "Logic cell %s does not fit in a 1x2 row (%.3f um)" $inst $width]
         }
-        if {$row_y + $by2 > 225.76} {
+        if {$row_y + $height > 225.76} {
             error [format "Logic-cell rows exceed the 1x2 tile at %s" $inst]
         }
-        place_logic_cell $cell $row_x $row_y
-        set logic_instance_xy($inst) [list $row_x $row_y]
+        set cell_x [expr {$row_x - $bx1}]
+        set cell_y [expr {$row_y - $by1}]
+        place_logic_cell $cell $cell_x $cell_y
+        set logic_instance_xy($inst) [list $cell_x $cell_y]
         set logic_instance_row($inst) $row
         if {![info exists logic_row_members($row)]} {
             set logic_row_members($row) {}
@@ -2582,10 +2622,10 @@ proc place_logic_block {start_y} {
         lappend logic_row_members($row) $inst
         set row_type $type
         if {$height > $row_height} {set row_height $height}
-        set cell_xlo [expr {$row_x + $bx1}]
-        set cell_ylo [expr {$row_y + $by1}]
-        set cell_xhi [expr {$row_x + $bx2}]
-        set cell_yhi [expr {$row_y + $by2}]
+        set cell_xlo $row_x
+        set cell_ylo $row_y
+        set cell_xhi [expr {$row_x + $width}]
+        set cell_yhi [expr {$row_y + $height}]
         if {$cell_xlo < $row_xlo} {set row_xlo $cell_xlo}
         if {$cell_ylo < $row_ylo} {set row_ylo $cell_ylo}
         if {$cell_xhi > $row_xhi} {set row_xhi $cell_xhi}
