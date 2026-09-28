@@ -12,8 +12,8 @@ set layout_target top
 if {[info exists ::env(LAYOUT_TARGET)]} {
     set layout_target $::env(LAYOUT_TARGET)
 }
-if {$layout_stage ne "logic"} {
-    error "Only the logic stage is implemented"
+if {$layout_stage ni {logic analog}} {
+    error "Unknown LAYOUT_STAGE: $layout_stage"
 }
 if {$layout_target ni {top subckts}} {
     error "Unknown LAYOUT_TARGET: $layout_target"
@@ -344,6 +344,27 @@ proc top_logic_instances {} {
         [list XO2 ls_inv {A fltb Y FAULT VPWR VDPWR VGND VGND}]]
 }
 
+proc top_analog_devices {} {
+    return [list \
+        [list XMB0 n 2 1 nb nb VGND VGND] \
+        [list XMB1 n 2 1 pb nb VGND VGND] \
+        [list XMB2 p 2 4 pb pb VAPWR VAPWR] \
+        [list XMT n 1 1 tail nb VGND VGND] \
+        [list XM1 n 20 2 d1 SNS_A tail VGND] \
+        [list XM2 n 20 2 out1 SNS_B tail VGND] \
+        [list XM3 p 4 2 d1 d1 VAPWR VAPWR] \
+        [list XM4 p 4 2 out1 d1 VAPWR VAPWR] \
+        [list XM6 p 40 1 GATE out1 VAPWR VAPWR] \
+        [list XM7 n 40 1 GATE nb VGND VGND] \
+        [list XMEN p 2 0.5 out1 en VAPWR VAPWR] \
+        [list XMPD n 5 0.5 GATE enb VGND VGND] \
+        [list XM6R p 4 1 det out1 VAPWR VAPWR] \
+        [list XM7R n 8 1 det nb VGND VGND] \
+        [list XMTS p 1 8 ts pb VAPWR VAPWR] \
+        [list XMTSW p 1 0.5 CT ilimb_h ts VAPWR] \
+        [list XMTD n 1 0.5 CT ilimb_h VGND VGND]]
+}
+
 proc place_logic_cell {cell x y} {
     box 0 0 0 0
     getcell $cell child 0 0 parent [expr {round($x * 200)}] [expr {round($y * 200)}]
@@ -354,6 +375,7 @@ proc place_logic_block {} {
     set x 15.0
     set y 12.0
     set row_height 0.0
+    set max_bottom 0.0
     set gap_x 3.0
     set gap_y 3.0
     foreach spec [top_logic_instances] {
@@ -369,6 +391,49 @@ proc place_logic_block {} {
             error "Logic-cell placement exceeds the 1x2 tile"
         }
         place_logic_cell $cell $x $y
+        set cell_bottom [expr {$y + $height}]
+        if {$cell_bottom > $max_bottom} {set max_bottom $cell_bottom}
+        set x [expr {$x + $width + $gap_x}]
+        if {$height > $row_height} {set row_height $height}
+    }
+    return $max_bottom
+}
+
+proc place_analog_devices {logic_bottom} {
+    global top endpoints
+    array unset endpoints
+    array set endpoints {}
+    set devices [top_analog_devices]
+    set prepared {}
+    foreach device $devices {
+        lassign $device inst type w l drain gate source bulk
+        make_mos $top $inst $type $w $l
+        set bbox [cell_bbox "$inst.mag"]
+        set pinmap [list D $drain G $gate S $source B $bulk]
+        lappend prepared [list $inst $pinmap $bbox]
+    }
+    set x 15.0
+    set y [expr {$logic_bottom + 3.0}]
+    set row_height 0.0
+    set left 15.0
+    set right 141.0
+    set bottom 220.0
+    set gap_x 2.5
+    set gap_y 2.5
+    foreach item $prepared {
+        lassign $item inst pinmap bbox
+        lassign $bbox x1 y1 x2 y2
+        set width [expr {$x2 - $x1}]
+        set height [expr {$y2 - $y1}]
+        if {$x + $width > $right} {
+            set x $left
+            set y [expr {$y + $row_height + $gap_y}]
+            set row_height 0.0
+        }
+        if {$x + $width > $right || $y + $height > $bottom} {
+            error "Analog-device placement exceeds the 1x2 tile"
+        }
+        place_existing_mos $inst [expr {$x - $x1}] [expr {$y - $y1}] $pinmap
         set x [expr {$x + $width + $gap_x}]
         if {$height > $row_height} {set row_height $height}
     }
@@ -389,7 +454,10 @@ if {$layout_target eq "subckts"} {
     quit -noprompt
 }
 
-place_logic_block
+set logic_bottom [place_logic_block]
+if {$layout_stage eq "analog"} {
+    place_analog_devices $logic_bottom
+}
 load $top
 select top cell
 save "$top.mag"
