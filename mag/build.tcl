@@ -1128,6 +1128,20 @@ proc collect_top_pad_endpoints {} {
     }
 }
 
+proc signal_column_reserved_for_endpoint {kind candidate} {
+    global res_group_global_bbox mimcap_global_bbox
+    if {$kind ne "pad"} {
+        return 0
+    }
+    foreach bbox [list $res_group_global_bbox $mimcap_global_bbox] {
+        if {$candidate >= [lindex $bbox 0] - 0.5 &&
+            $candidate <= [lindex $bbox 2] + 0.5} {
+            return 1
+        }
+    }
+    return 0
+}
+
 proc register_unconnected_pad_obstacles {} {
     global top
     set connected {}
@@ -1926,6 +1940,9 @@ proc route_global_nets {} {
                     if {abs($candidate - 8.28) < 0.8 ||
                         abs($candidate - 11.04) < 0.8 ||
                         abs($candidate - 13.80) < 0.8} {
+                        continue
+                    }
+                    if {[signal_column_reserved_for_endpoint $kind $candidate]} {
                         continue
                     }
                     set colkey [format "%.3f" $candidate]
