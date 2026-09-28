@@ -25,7 +25,7 @@ proc route_guard_reset {} {
     set ::route_guard_rects {}
 }
 
-proc route_guard_register {net layer x1 y1 x2 y2} {
+proc route_guard_conflicts {net layer x1 y1 x2 y2} {
     global route_guard_rects route_guard_spacing
     set xlo [expr {min($x1, $x2)}]
     set ylo [expr {min($y1, $y2)}]
@@ -47,11 +47,164 @@ proc route_guard_register {net layer x1 y1 x2 y2} {
                 $owner $other_layer $ox1 $oy1 $ox2 $oy2]
         }
     }
-    if {[llength $conflicts] > 0} {
+    return [list $spacing [join $conflicts {; }]]
+}
+
+proc route_guard_register {net layer x1 y1 x2 y2} {
+    global route_guard_rects
+    set xlo [expr {min($x1, $x2)}]
+    set ylo [expr {min($y1, $y2)}]
+    set xhi [expr {max($x1, $x2)}]
+    set yhi [expr {max($y1, $y2)}]
+    lassign [route_guard_conflicts $net $layer $xlo $ylo $xhi $yhi] spacing conflicts
+    if {$conflicts ne ""} {
         error [format "route conflict: %s %s {%.3f %.3f %.3f %.3f} spacing %.3f conflicts with %s" \
-            $net $layer $xlo $ylo $xhi $yhi $spacing [join $conflicts {; }]]
+            $net $layer $xlo $ylo $xhi $yhi $spacing $conflicts]
     }
     lappend route_guard_rects [list $net $layer $xlo $ylo $xhi $yhi]
+}
+
+proc route_via2_shapes {x y} {
+    return [list \
+        [list met2 [expr {$x - 0.14}] [expr {$y - 0.19}] [expr {$x + 0.14}] [expr {$y + 0.19}]] \
+        [list met3 [expr {$x - 0.31}] [expr {$y - 0.20}] [expr {$x + 0.31}] [expr {$y + 0.20}]] \
+        [list via2 [expr {$x - 0.14}] [expr {$y - 0.14}] [expr {$x + 0.14}] [expr {$y + 0.14}]]]
+}
+
+proc route_track_shapes {mode x args} {
+    set shapes {}
+    if {$mode eq "global"} {
+        lassign $args lane_start lane endpoint_min endpoint_max
+        lappend shapes [list met3 [expr {$x - 0.2}] [expr {$lane_start - 0.2}] \
+            [expr {$x + 0.2}] [expr {$lane + 0.2}]]
+        set left [expr {min($endpoint_min, $x)}]
+        set right [expr {max($endpoint_max, $x)}]
+        lappend shapes [list met2 [expr {$left - 0.15}] [expr {$lane - 0.15}] \
+            [expr {$right + 0.15}] [expr {$lane + 0.15}]]
+        lappend shapes {*}[route_via2_shapes $x $lane]
+    } elseif {$mode eq "horizontal"} {
+        lassign $args endpoint_min endpoint_max
+        set left [expr {min($endpoint_min, $endpoint_max)}]
+        set right [expr {max($endpoint_min, $endpoint_max)}]
+        lappend shapes [list met2 [expr {$left - 0.15}] [expr {$x - 0.15}] \
+            [expr {$right + 0.15}] [expr {$x + 0.15}]]
+    } elseif {$mode eq "bottom"} {
+        lassign $args source_y lane source_x
+        lappend shapes [list met2 [expr {min($source_x, $x) - 0.15}] [expr {$source_y - 0.15}] \
+            [expr {max($source_x, $x) + 0.15}] [expr {$source_y + 0.15}]]
+        lappend shapes [list met3 [expr {$x - 0.2}] [expr {min($source_y, $lane) - 0.2}] \
+            [expr {$x + 0.2}] [expr {max($source_y, $lane) + 0.2}]]
+        lappend shapes {*}[route_via2_shapes $x $source_y]
+        lappend shapes {*}[route_via2_shapes $x $lane]
+    } elseif {$mode eq "local"} {
+        lassign $args source_y lane source_x source_layer global_x
+        if {$source_layer eq "met2"} {
+            lappend shapes [list met2 [expr {min($source_x, $x) - 0.15}] [expr {$source_y - 0.15}] \
+                [expr {max($source_x, $x) + 0.15}] [expr {$source_y + 0.15}]]
+        } elseif {$source_layer eq "met3"} {
+            lappend shapes [list met3 [expr {min($source_x, $x) - 0.2}] [expr {$source_y - 0.2}] \
+                [expr {max($source_x, $x) + 0.2}] [expr {$source_y + 0.2}]]
+        }
+        lappend shapes [list met3 [expr {$x - 0.2}] [expr {min($source_y, $lane) - 0.2}] \
+            [expr {$x + 0.2}] [expr {max($source_y, $lane) + 0.2}]]
+        lappend shapes {*}[route_via2_shapes $x $source_y]
+        lappend shapes {*}[route_via2_shapes $x $lane]
+        lappend shapes [list met2 [expr {min($x, $global_x) - 0.15}] [expr {$lane - 0.15}] \
+            [expr {max($x, $global_x) + 0.15}] [expr {$lane + 0.15}]]
+        lappend shapes {*}[route_via2_shapes $global_x $lane]
+    } else {
+        error "Unknown route-track mode $mode"
+    }
+    return $shapes
+}
+
+proc route_track_is_clear {net shapes} {
+    foreach shape $shapes {
+        lassign $shape layer x1 y1 x2 y2
+        lassign [route_guard_conflicts $net $layer $x1 $y1 $x2 $y2] spacing conflicts
+        if {$conflicts ne ""} {
+            return 0
+        }
+    }
+    return 1
+}
+
+proc allocate_route_track {base net mode args} {
+    global route_track_owner route_net_tracks route_m2_lane_owner
+    if {$mode in {horizontal bottom_horizontal}} {
+        lassign $args endpoint_min endpoint_max
+        set pitch 0.8
+        set max_y 225.56
+        if {$mode eq "bottom_horizontal"} {
+            set max_y 10.0
+        }
+        for {set step 0} {$base + $step * $pitch <= $max_y} {incr step} {
+            set y [expr {$base + $step * $pitch}]
+            set lane_key [format "%.3f" $y]
+            set blocked 0
+            foreach occupied [array names route_m2_lane_owner] {
+                if {$route_m2_lane_owner($occupied) ne $net &&
+                    abs($y - $occupied) < $pitch - 1.0e-6} {
+                    set blocked 1
+                    break
+                }
+            }
+            if {$blocked} {
+                continue
+            }
+            set shapes [route_track_shapes horizontal $y $endpoint_min $endpoint_max]
+            if {![route_track_is_clear $net $shapes]} {
+                continue
+            }
+            set route_m2_lane_owner($lane_key) $net
+            return $y
+        }
+        error [format "No free horizontal track remains for %s above %.2f um" $net $base]
+    }
+    set origin [expr {round($base)}]
+    set min_x 0.31
+    set max_x 145.05
+    if {$mode eq "global"} {
+        set min_x 90.0
+    } elseif {$mode eq "bottom"} {
+        set max_x 7.5
+    }
+    for {set offset 0} {$offset <= 145} {incr offset} {
+        if {$offset == 0} {
+            set candidates [list $origin]
+        } else {
+            set candidates [list [expr {$origin + $offset}] [expr {$origin - $offset}]]
+        }
+        foreach x $candidates {
+            if {$x < $min_x || $x > $max_x} {
+                continue
+            }
+            set track_key [format "%.3f" $x]
+            set blocked 0
+            foreach occupied [array names route_track_owner] {
+                if {$route_track_owner($occupied) ne $net &&
+                    abs($x - $occupied) < 1.0 - 1.0e-6} {
+                    set blocked 1
+                    break
+                }
+            }
+            if {$blocked} {
+                continue
+            }
+            set shapes [route_track_shapes $mode $x {*}$args]
+            if {![route_track_is_clear $net $shapes]} {
+                continue
+            }
+            set route_track_owner($track_key) $net
+            if {![info exists route_net_tracks($net)]} {
+                set route_net_tracks($net) {}
+            }
+            lappend route_net_tracks($net) $x
+            return $x
+        }
+    }
+    error [format "No free %s track remains for %s in die range %.2f..%.2f um" \
+        $mode $net $min_x $max_x]
 }
 
 proc paint_net_rect {net layer x1 y1 x2 y2} {
@@ -341,7 +494,7 @@ proc add_net_pin {path x y pin net kind} {
 
 proc place_existing_mos {name x y pinmap} {
     box 0 0 0 0
-    getcell $name child 0 0 parent [expr {round($x * 200)}] [expr {round($y * 200)}]
+    getcell $name child 0 0 parent ${x}um ${y}um
     foreach {pin net} $pinmap {
         add_net_pin "$name.mag" $x $y $pin $net mos
     }
@@ -400,16 +553,21 @@ proc route_mos_endpoint {x y pin layer lane net {track_x ""}} {
         paint_via2 $net $ax $lane 1
         return $ax
     }
-    paint_via2 $net $ax $ay 1
-    if {abs($ay - $lane) > 1.0e-6} {
-        paint_m3_path [list [list $ax $ay] [list $ax $lane]] $net
+    set local_track [allocate_route_track $ax $net local \
+        $ay $lane $ax met2 $track_x]
+    if {abs($ax - $local_track) > 1.0e-6} {
+        paint_m2_path [list [list $ax $ay] [list $local_track $ay]] $net
     }
-    paint_via2 $net $ax $lane 1
-    if {abs($ax - $track_x) > 1.0e-6} {
-        paint_m2_path [list [list $ax $lane] [list $track_x $lane]] $net
+    paint_via2 $net $local_track $ay 1
+    if {abs($ay - $lane) > 1.0e-6} {
+        paint_m3_path [list [list $local_track $ay] [list $local_track $lane]] $net
+    }
+    paint_via2 $net $local_track $lane 1
+    if {abs($local_track - $track_x) > 1.0e-6} {
+        paint_m2_path [list [list $local_track $lane] [list $track_x $lane]] $net
     }
     paint_via2 $net $track_x $lane 1
-    return $track_x
+    return $local_track
 }
 
 proc paint_via2 {net x y {wide_m3 0}} {
@@ -431,40 +589,57 @@ proc paint_via3 {net x y} {
 }
 
 proc route_metal_endpoint {x y layer lane track_x net} {
-    if {$layer eq "met4"} {
-        paint_via3 $net $x $y
-    } elseif {$layer eq "met2"} {
-        paint_via2 $net $x $y
-    } elseif {$layer ni {met3 via3 mimcapcontact}} {
+    if {$layer eq "met2"} {
+        set source_layer met2
+    } elseif {$layer in {met3 via3 mimcapcontact}} {
+        set source_layer met3
+    } else {
         error "Unsupported route endpoint layer $layer"
     }
-    if {abs($y - $lane) > 1.0e-6} {
-        paint_m3_path [list [list $x $y] [list $x $lane]] $net
+    set local_track [allocate_route_track $x $net local \
+        $y $lane $x $source_layer $track_x]
+    if {abs($x - $local_track) > 1.0e-6} {
+        if {$source_layer eq "met2"} {
+            paint_m2_path [list [list $x $y] [list $local_track $y]] $net
+        } else {
+            paint_m3_path [list [list $x $y] [list $local_track $y]] $net
+        }
     }
-    paint_via2 $net $x $lane 1
-    if {abs($x - $track_x) > 1.0e-6} {
-        paint_m2_path [list [list $x $lane] [list $track_x $lane]] $net
+    paint_via2 $net $local_track $y 1
+    if {abs($y - $lane) > 1.0e-6} {
+        paint_m3_path [list [list $local_track $y] [list $local_track $lane]] $net
+    }
+    paint_via2 $net $local_track $lane 1
+    if {abs($local_track - $track_x) > 1.0e-6} {
+        paint_m2_path [list [list $local_track $lane] [list $track_x $lane]] $net
     }
     paint_via2 $net $track_x $lane 1
-    return $track_x
+    return $local_track
 }
 
 proc route_resistor_endpoint {x y pin layer lane track_x net} {
     if {$layer ni {met2 met3}} {
         error "Unsupported resistor endpoint layer $layer"
     }
-    if {$layer eq "met2"} {
-        paint_via2 $net $x $y
+    set local_track [allocate_route_track $x $net local \
+        $y $lane $x $layer $track_x]
+    if {abs($x - $local_track) > 1.0e-6} {
+        if {$layer eq "met2"} {
+            paint_m2_path [list [list $x $y] [list $local_track $y]] $net
+        } else {
+            paint_m3_path [list [list $x $y] [list $local_track $y]] $net
+        }
     }
+    paint_via2 $net $local_track $y 1
     if {abs($y - $lane) > 1.0e-6} {
-        paint_m3_path [list [list $x $y] [list $x $lane]] $net
+        paint_m3_path [list [list $local_track $y] [list $local_track $lane]] $net
     }
-    paint_via2 $net $x $lane 1
-    if {abs($x - $track_x) > 1.0e-6} {
-        paint_m2_path [list [list $x $lane] [list $track_x $lane]] $net
+    paint_via2 $net $local_track $lane 1
+    if {abs($local_track - $track_x) > 1.0e-6} {
+        paint_m2_path [list [list $local_track $lane] [list $track_x $lane]] $net
     }
     paint_via2 $net $track_x $lane 1
-    return $track_x
+    return $local_track
 }
 
 proc route_mim_endpoint {x y pin lane track_x net} {
@@ -473,64 +648,43 @@ proc route_mim_endpoint {x y pin lane track_x net} {
     } elseif {$pin ne "C1"} {
         error "Unsupported MIM terminal $pin"
     }
-    if {abs($y - $lane) > 1.0e-6} {
-        paint_m3_path [list [list $x $y] [list $x $lane]] $net
+    set local_track [allocate_route_track $x $net local \
+        $y $lane $x met3 $track_x]
+    if {abs($x - $local_track) > 1.0e-6} {
+        paint_m3_path [list [list $x $y] [list $local_track $y]] $net
     }
-    paint_via2 $net $x $lane 1
-    if {abs($x - $track_x) > 1.0e-6} {
-        paint_m2_path [list [list $x $lane] [list $track_x $lane]] $net
+    paint_via2 $net $local_track $y 1
+    if {abs($y - $lane) > 1.0e-6} {
+        paint_m3_path [list [list $local_track $y] [list $local_track $lane]] $net
+    }
+    paint_via2 $net $local_track $lane 1
+    if {abs($local_track - $track_x) > 1.0e-6} {
+        paint_m2_path [list [list $local_track $lane] [list $track_x $lane]] $net
     }
     paint_via2 $net $track_x $lane 1
-    return $track_x
+    return $local_track
 }
 
-proc route_bottom_pad {x y lane track_x net} {
+proc route_pad_stem {x y lane net} {
+    global route_track_owner
     paint_via3 $net $x $y
     if {abs($y - $lane) > 1.0e-6} {
         paint_m3_path [list [list $x $y] [list $x $lane]] $net
     }
     paint_via2 $net $x $lane 1
-    if {abs($x - $track_x) > 1.0e-6} {
-        paint_m2_path [list [list $x $lane] [list $track_x $lane]] $net
-    }
-    paint_via2 $net $track_x $lane 1
-    return $track_x
+    set route_track_owner([format "%.3f" $x]) $net
 }
 
-proc allocate_route_track {base net} {
-    global route_track_owner route_net_tracks
-    if {[info exists route_net_tracks($net)]} {
-        if {[llength $route_net_tracks($net)] > 0} {
-            return [lindex $route_net_tracks($net) 0]
-        }
-    }
-    set pitch 1.0
-    for {set step 0} {$step < 200} {incr step} {
-        if {$step == 0} {
-            set candidates [list $base]
-        } else {
-            set delta [expr {$step * $pitch}]
-            set candidates [list [expr {$base + $delta}] [expr {$base - $delta}]]
-        }
-        foreach candidate $candidates {
-            if {$candidate < 130.0 || $candidate > 210.0} {
-                continue
-            }
-            set blocked 0
-            foreach occupied [array names route_track_owner] {
-                if {abs($candidate - $occupied) < 1.0} {
-                    set blocked 1
-                    break
-                }
-            }
-            if {!$blocked} {
-                set route_track_owner([format %.3f $candidate]) $net
-                lappend route_net_tracks($net) $candidate
-                return $candidate
-            }
-        }
-    }
-    error "No routing track available for $net near $base"
+proc route_bottom_pad_stem {x y lane escape_y net base} {
+    paint_via3 $net $x $y
+    paint_m3_path [list [list $x $y] [list $x $escape_y]] $net
+    paint_via2 $net $x $escape_y 1
+    set escape_x [allocate_route_track $base $net bottom $escape_y $lane $x]
+    paint_m2_path [list [list $x $escape_y] [list $escape_x $escape_y]] $net
+    paint_via2 $net $escape_x $escape_y 1
+    paint_m3_path [list [list $escape_x $escape_y] [list $escape_x $lane]] $net
+    paint_via2 $net $escape_x $lane 1
+    return $escape_x
 }
 
 proc make_power_stripe {name x} {
@@ -584,11 +738,18 @@ proc collect_top_pad_endpoints {} {
 }
 
 proc route_global_nets {} {
-    global endpoints route_track_owner route_net_tracks route_content_top
+    global endpoints route_track_owner route_net_tracks route_m2_lane_owner route_content_top
     array unset route_track_owner
     array set route_track_owner {}
     array unset route_net_tracks
     array set route_net_tracks {}
+    array unset route_m2_lane_owner
+    array set route_m2_lane_owner {}
+    set stripe_x_by_net [dict create VDPWR 8.28 VGND 11.04 VAPWR 13.80]
+    foreach {net stripe_x} $stripe_x_by_net {
+        set route_track_owner([format "%.3f" $stripe_x]) $net
+        set route_net_tracks($net) [list $stripe_x]
+    }
     set nets [lsort [array names endpoints]]
     set lane_start 185.0
     set lane_pitch 0.8
@@ -602,43 +763,92 @@ proc route_global_nets {} {
     make_power_stripe VDPWR 8.28
     make_power_stripe VGND 11.04
     make_power_stripe VAPWR 13.80
-    set signal_index 0
-    set net_index 0
+    set endpoint_bounds {}
     foreach net $nets {
-        set lane [expr {$lane_start + $net_index * $lane_pitch}]
-        incr net_index
-        if {$net in {VDPWR VGND VAPWR}} {
-            set track_x [dict get [dict create VDPWR 8.28 VGND 11.04 VAPWR 13.80] $net]
-        } else {
-            set track_x [allocate_route_track [expr {140.0 + $signal_index}] $net]
-            incr signal_index
-        }
-        puts [format "Routing %s: %d endpoints at %.2f um" $net [llength $endpoints($net)] $lane]
+        set min_x 1.0e9
+        set max_x -1.0e9
         foreach endpoint $endpoints($net) {
             lassign $endpoint x y kind pin layer
-            if {$kind eq "mos"} {
-                set ax [route_mos_endpoint $x $y $pin $layer $lane $net $track_x]
-            } elseif {$kind eq "resistor"} {
-                set ax [route_resistor_endpoint $x $y $pin $layer $lane $track_x $net]
-            } elseif {$kind eq "pad" && $y < 2.0} {
-                if {![regexp {^ua\[([0-3])\]$} $pin -> pad_index]} {
-                    error "Unexpected bottom-edge pad $pin"
+            if {$x < $min_x} {set min_x $x}
+            if {$x > $max_x} {set max_x $x}
+        }
+        dict set endpoint_bounds $net [list $min_x $max_x]
+    }
+    set lane_by_net {}
+    set net_index 0
+    foreach net $nets {
+        lassign [dict get $endpoint_bounds $net] min_x max_x
+        set lane [allocate_route_track [expr {$lane_start + $net_index * $lane_pitch}] \
+            $net horizontal $min_x $max_x]
+        dict set lane_by_net $net $lane
+        incr net_index
+    }
+    set track_by_net {}
+    foreach net $nets {
+        set lane [dict get $lane_by_net $net]
+        set bottom_index 0
+        foreach endpoint $endpoints($net) {
+            lassign $endpoint x y kind pin layer
+            if {$kind eq "pad"} {
+                if {$y < 2.0} {
+                    if {![regexp {^ua\[([0-3])\]$} $pin -> pad_index]} {
+                        error "Unexpected bottom-edge pad $pin"
+                    }
+                    set escape_y [allocate_route_track \
+                        [expr {2.0 + 0.8 * $bottom_index}] $net bottom_horizontal \
+                        [expr {min($x, 0.31)}] [expr {max($x, 7.5)}]]
+                    set escape_x [route_bottom_pad_stem $x $y $lane $escape_y $net \
+                        [expr {1.0 + $bottom_index}]]
+                    lassign [dict get $endpoint_bounds $net] min_x max_x
+                    dict set endpoint_bounds $net \
+                        [list [expr {min($min_x, $escape_x)}] [expr {max($max_x, $escape_x)}]]
+                    incr bottom_index
+                } else {
+                    route_pad_stem $x $y $lane $net
                 }
-                set ax [route_bottom_pad $x $y $lane $track_x $net]
-            } elseif {$kind eq "capacitor"} {
-                set ax [route_mim_endpoint $x $y $pin $lane $track_x $net]
-            } else {
-                set ax [route_metal_endpoint $x $y $layer $lane $track_x $net]
             }
         }
-        set lane_left [expr {min($track_x, 88.0)}]
-        set lane_right [expr {max($track_x, 88.0)}]
+    }
+    set signal_index 0
+    foreach net $nets {
+        set lane [dict get $lane_by_net $net]
+        if {$net in {VDPWR VGND VAPWR}} {
+            set track_x [dict get $stripe_x_by_net $net]
+        } else {
+            lassign [dict get $endpoint_bounds $net] min_x max_x
+            set track_x [allocate_route_track [expr {96.0 + $signal_index}] $net \
+                global $lane_start $lane $min_x $max_x]
+            incr signal_index
+        }
+        dict set track_by_net $net $track_x
+    }
+    foreach net $nets {
+        set lane [dict get $lane_by_net $net]
+        set track_x [dict get $track_by_net $net]
+        puts [format "Routing %s: %d endpoints at %.2f um on track %.2f um" \
+            $net [llength $endpoints($net)] $lane $track_x]
+        foreach endpoint $endpoints($net) {
+            lassign $endpoint x y kind pin layer
+            if {$kind eq "pad"} {
+                continue
+            } elseif {$kind eq "mos"} {
+                route_mos_endpoint $x $y $pin $layer $lane $net $track_x
+            } elseif {$kind eq "resistor"} {
+                route_resistor_endpoint $x $y $pin $layer $lane $track_x $net
+            } elseif {$kind eq "capacitor"} {
+                route_mim_endpoint $x $y $pin $lane $track_x $net
+            } else {
+                route_metal_endpoint $x $y $layer $lane $track_x $net
+            }
+        }
+        lassign [dict get $endpoint_bounds $net] min_x max_x
+        set lane_left [expr {min($track_x, $min_x)}]
+        set lane_right [expr {max($track_x, $max_x)}]
         paint_m2_path [list [list $lane_left $lane] [list $lane_right $lane]] $net
         paint_via2 $net $track_x $lane 1
-        paint_m3_path [list [list $track_x [expr {$lane - 0.4}]] [list $track_x $lane]] $net
+        paint_m3_path [list [list $track_x $lane_start] [list $track_x $lane]] $net
         if {$net in {VDPWR VGND VAPWR}} {
-            set stripe_x [dict get [dict create VDPWR 8.28 VGND 11.04 VAPWR 13.80] $net]
-            paint_via3 $net $stripe_x $lane
+            paint_via3 $net $track_x $lane
         }
     }
 }
@@ -704,7 +914,7 @@ proc logic_ports {cell} {
 }
 
 proc build_logic_cell {cell} {
-    global top endpoints logic_cell_width logic_cell_height
+    global top endpoints logic_cell_width logic_cell_height logic_cell_route_rects
     route_guard_reset
     array unset endpoints
     array set endpoints {}
@@ -797,6 +1007,7 @@ proc build_logic_cell {cell} {
     set cell_width [expr {$max_shape_x + 3.0}]
     set cell_height [expr {$lane_start + ($net_index - 1) * $lane_pitch + 1.0}]
     save "$cell.mag"
+    set logic_cell_route_rects($cell) $route_guard_rects
     set logic_cell_width($cell) $cell_width
     set logic_cell_height($cell) $cell_height
     load $top
@@ -831,6 +1042,26 @@ proc top_logic_instances {} {
         [list XO2 ls_inv {A fltb Y FAULT VPWR VDPWR VGND VGND}]]
 }
 
+proc register_logic_cell_obstacles {} {
+    global logic_instance_xy logic_cell_route_rects
+    foreach spec [top_logic_instances] {
+        lassign $spec inst cell pinmap
+        lassign $logic_instance_xy($inst) x y
+        set pin_nets [dict create {*}$pinmap]
+        foreach rect $logic_cell_route_rects($cell) {
+            lassign $rect owner layer x1 y1 x2 y2
+            if {[dict exists $pin_nets $owner]} {
+                set net [dict get $pin_nets $owner]
+            } else {
+                set net "${inst}/$owner"
+            }
+            route_guard_register $net $layer \
+                [expr {$x + $x1}] [expr {$y + $y1}] \
+                [expr {$x + $x2}] [expr {$y + $y2}]
+        }
+    }
+}
+
 proc top_analog_devices {} {
     return [list \
         [list XMTD n 1 0.5 CT ilimb_h VGND VGND] \
@@ -854,7 +1085,7 @@ proc top_analog_devices {} {
 
 proc place_logic_cell {cell x y} {
     box 0 0 0 0
-    getcell $cell child 0 0 parent [expr {round($x * 200)}] [expr {round($y * 200)}]
+    getcell $cell child 0 0 parent ${x}um ${y}um
 }
 
 proc place_logic_block {} {
@@ -907,7 +1138,7 @@ proc place_analog_devices {logic_bottom} {
     set analog_start_y $y
     set row_height 0.0
     set left 15.0
-    set right 130.0
+    set right 88.0
     set bottom 220.0
     set gap_x 2.5
     set gap_y 2.5
@@ -936,14 +1167,17 @@ proc place_resistor_group {analog_bottom} {
     make_res_group
     set bbox [cell_bbox res_group.mag]
     lassign $bbox x1 y1 x2 y2
-    set x [expr {145.0 - $x1}]
+    set x [expr {92.0 - $x1}]
     set y [expr {$analog_start_y - 5.0 - $y1}]
-    if {$x + $x2 > 220.0 || $y + $y2 > 220.0} {
+    set xlo [expr {$x + $x1}]
+    set ylo [expr {$y + $y1}]
+    set xhi [expr {$x + $x2}]
+    set yhi [expr {$y + $y2}]
+    if {$xlo < 0.0 || $ylo < 0.0 || $xhi > 145.36 || $yhi > 225.76} {
         error "Resistor-group placement exceeds the 1x2 tile"
     }
     set res_group_global_bbox [list \
-        [expr {$x + $x1}] [expr {$y + $y1}] \
-        [expr {$x + $x2}] [expr {$y + $y2}]]
+        $xlo $ylo $xhi $yhi]
     set res_group_global_m3_obstacles {}
     foreach obstacle $res_group_local_m3_obstacles {
         lassign $obstacle net layer ox1 oy1 ox2 oy2
@@ -952,7 +1186,7 @@ proc place_resistor_group {analog_bottom} {
             [expr {$x + $ox2}] [expr {$y + $oy2}]]
     }
     box 0 0 0 0
-    getcell res_group child 0 0 parent [expr {round($x * 200)}] [expr {round($y * 200)}]
+    getcell res_group child 0 0 parent ${x}um ${y}um
     foreach {pin net} {VAPWR VAPWR nb nb cz cz GATE GATE VGND VGND} {
         add_net_pin res_group.mag $x $y $pin $net resistor
     }
@@ -973,20 +1207,25 @@ proc make_mim_cap {} {
 }
 
 proc place_mim_cap {analog_bottom} {
-    global top analog_start_y mimcap_global_bbox
+    global top analog_start_y mimcap_global_bbox mimcap_global_m3_obstacle
     set res_bbox [cell_bbox res_group.mag]
     lassign $res_bbox rx1 ry1 rx2 ry2
     set bbox [make_mim_cap]
     lassign $bbox x1 y1 x2 y2
-    set x [expr {145.0 + ($rx2 - $rx1) + 3.0 - $x1}]
+    set x [expr {92.0 + ($rx2 - $rx1) + 3.0 - $x1}]
     set y [expr {$analog_start_y - $y1}]
-    if {$x + $x2 > 220.0 || $y + $y2 > 220.0} {
+    set xlo [expr {$x + $x1}]
+    set ylo [expr {$y + $y1}]
+    set xhi [expr {$x + $x2}]
+    set yhi [expr {$y + $y2}]
+    if {$xlo < 0.0 || $ylo < 0.0 || $xhi > 145.36 || $yhi > 225.76} {
         error "MIM-capacitor placement exceeds the 1x2 tile"
     }
     box 0 0 0 0
-    getcell XCC child 0 0 parent [expr {round($x * 200)}] [expr {round($y * 200)}]
-    set mimcap_global_bbox [list \
-        [expr {$x + $x1}] [expr {$y + $y1}] [expr {$x + $x2}] [expr {$y + $y2}]]
+    getcell XCC child 0 0 parent ${x}um ${y}um
+    set mimcap_global_bbox [list $xlo $ylo $xhi $yhi]
+    set mimcap_global_m3_obstacle [list out1 met3 $xlo [expr {$y + $y1}] \
+        [expr {$x + 19.66}] [expr {$y + $y2}]]
     add_net_pin XCC.mag $x $y C1 out1 capacitor
     add_net_pin XCC.mag $x $y C2 cz capacitor
 }
@@ -1030,6 +1269,10 @@ if {$layout_stage eq "routing"} {
     foreach obstacle $res_group_global_m3_obstacles {
         route_guard_register {*}$obstacle
     }
+    if {[info exists mimcap_global_m3_obstacle]} {
+        route_guard_register {*}$mimcap_global_m3_obstacle
+    }
+    register_logic_cell_obstacles
     collect_logic_endpoints
     collect_top_pad_endpoints
     route_global_nets
