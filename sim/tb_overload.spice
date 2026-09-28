@@ -1,0 +1,32 @@
+* Turn-on into 100uF + 2 Ohm, overload to ~9A demand at 10ms -> limit ~4.9A -> fault latch after CT timeout
+.lib /foss/pdks/sky130A/libs.tech/ngspice/sky130.lib.spice tt
+.include /foss/pdks/sky130A/libs.ref/sky130_fd_sc_hvl/spice/sky130_fd_sc_hvl.spice
+.include ../spice/ls_core.spice
+.include models/ext.lib
+.include ext_circuit.spice
+.param CF=1n CT=10n
+.option method=gear reltol=1e-3
+VSUP VS 0 5.1
+RSUP VS VSL 10m
+LSUP VSL VIN 1u
+CIN VIN 0 470u
+VA VAPWR 0 3.3
+VD VDPWR 0 1.8
+VOFF OFF 0 0
+VWAKE WAKE 0 0
+VRST RSTN 0 PWL(0 0 20u 0 21u 1.8)
+XC VAPWR VDPWR 0 SNS_A SNS_B GATE CT OFF WAKE RSTN PWR_ON ILIM FAULT ls_core
+XE VIN OUT SNS_A SNS_B GATE CT ext_hw
+CL OUT CLE 100u
+RCLE CLE 0 30m
+RL OUT 0 2
+SOV OUT OVL OVC 0 SW1
+ROV OVL 0 0.8
+VOVC OVC 0 PWL(0 0 10m 0 10.001m 1)
+.model SW1 SW vt=0.5 vh=0.1 ron=1m roff=1e9
+.control
+tran 1u 40m 0 2u
+let iload = i(VSUP)*-1
+wrdata tb_overload.txt v(OUT) iload v(GATE) v(CT) v(PWR_ON) v(ILIM) v(FAULT) v(xe.pg) v(SNS_A) v(SNS_B)
+.endc
+.end

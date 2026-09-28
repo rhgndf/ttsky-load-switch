@@ -1,0 +1,21 @@
+* external hardware around ls_core: 5V supply -> 20mOhm shunt -> P-MOSFET -> Pi 5V rail
+.subckt ext_hw VIN OUT SNS_A SNS_B GATE CT
+RS VIN SB 20m
+XP OUT PG SB PEXT_W
+RPU SB PG 1k
+XN PG GATE NS NEXT_W
+RSRC NS 0 330
+RGPD GATE 0 1Meg
+RA1 VIN SNS_A 10.4k
+RA2 SNS_A 0 10k
+RB1 SB SNS_B 10k
+RB2 SNS_B 0 10k
+CF GATE SNS_A {CF}
+CCT CT 0 {CT}
+.ends
+.subckt PEXT_W d g s
+M1 d g s s PEXT
+.ends
+.subckt NEXT_W d g s
+M1 d g s s NEXT
+.ends
