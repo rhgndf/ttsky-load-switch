@@ -98,16 +98,33 @@ proc route_track_shapes {mode x args} {
         lappend shapes {*}[route_via2_shapes $x $lane]
     } elseif {$mode eq "local"} {
         lassign $args source_y lane source_x source_layer global_x
+        set escape_y $source_y
+        if {[llength $args] > 5} {
+            set escape_y [lindex $args 5]
+        }
         if {$source_layer eq "met2"} {
-            lappend shapes [list met2 [expr {min($source_x, $x) - 0.15}] [expr {$source_y - 0.15}] \
-                [expr {max($source_x, $x) + 0.15}] [expr {$source_y + 0.15}]]
+            if {abs($escape_y - $source_y) > 1.0e-6} {
+                lappend shapes [list met2 [expr {$source_x - 0.15}] \
+                    [expr {min($source_y, $escape_y) - 0.15}] \
+                    [expr {$source_x + 0.15}] \
+                    [expr {max($source_y, $escape_y) + 0.15}]]
+                lappend shapes [list met2 [expr {min($source_x, $x) - 0.15}] \
+                    [expr {$escape_y - 0.15}] \
+                    [expr {max($source_x, $x) + 0.15}] \
+                    [expr {$escape_y + 0.15}]]
+            } else {
+                lappend shapes [list met2 [expr {min($source_x, $x) - 0.15}] \
+                    [expr {$source_y - 0.15}] \
+                    [expr {max($source_x, $x) + 0.15}] \
+                    [expr {$source_y + 0.15}]]
+            }
         } elseif {$source_layer eq "met3"} {
             lappend shapes [list met3 [expr {min($source_x, $x) - 0.2}] [expr {$source_y - 0.2}] \
                 [expr {max($source_x, $x) + 0.2}] [expr {$source_y + 0.2}]]
         }
-        lappend shapes [list met3 [expr {$x - 0.2}] [expr {min($source_y, $lane) - 0.2}] \
-            [expr {$x + 0.2}] [expr {max($source_y, $lane) + 0.2}]]
-        lappend shapes {*}[route_via2_shapes $x $source_y]
+        lappend shapes [list met3 [expr {$x - 0.2}] [expr {min($escape_y, $lane) - 0.2}] \
+            [expr {$x + 0.2}] [expr {max($escape_y, $lane) + 0.2}]]
+        lappend shapes {*}[route_via2_shapes $x $escape_y]
         lappend shapes {*}[route_via2_shapes $x $lane]
         lappend shapes [list met2 [expr {min($x, $global_x) - 0.15}] [expr {$lane - 0.15}] \
             [expr {max($x, $global_x) + 0.15}] [expr {$lane + 0.15}]]
@@ -119,10 +136,15 @@ proc route_track_shapes {mode x args} {
 }
 
 proc route_track_is_clear {net shapes} {
+    global route_track_last_conflicts
+    set route_track_last_conflicts {}
     foreach shape $shapes {
         lassign $shape layer x1 y1 x2 y2
         lassign [route_guard_conflicts $net $layer $x1 $y1 $x2 $y2] spacing conflicts
         if {$conflicts ne ""} {
+            lappend route_track_last_conflicts [format "%s %s {%.3f %.3f %.3f %.3f}" \
+                $net $layer $x1 $y1 $x2 $y2]
+            lappend route_track_last_conflicts $conflicts
             return 0
         }
     }
@@ -130,11 +152,12 @@ proc route_track_is_clear {net shapes} {
 }
 
 proc allocate_route_track {base net mode args} {
-    global route_track_owner route_net_tracks route_m2_lane_owner
+    global route_track_owner route_net_tracks route_m2_lane_owner route_track_last_conflicts
     if {$mode in {horizontal bottom_horizontal}} {
         lassign $args endpoint_min endpoint_max
         set pitch 0.8
         set max_y 225.56
+        set last_conflicts {}
         if {$mode eq "bottom_horizontal"} {
             set max_y 10.0
         }
@@ -154,12 +177,61 @@ proc allocate_route_track {base net mode args} {
             }
             set shapes [route_track_shapes horizontal $y $endpoint_min $endpoint_max]
             if {![route_track_is_clear $net $shapes]} {
+                set last_conflicts $route_track_last_conflicts
                 continue
             }
             set route_m2_lane_owner($lane_key) $net
             return $y
         }
-        error [format "No free horizontal track remains for %s above %.2f um" $net $base]
+        error [format "No free horizontal track remains for %s above %.2f um; last conflicts: %s" \
+            $net $base [join $last_conflicts {; }]]
+    }
+    if {$mode eq "local_escape"} {
+        lassign $args source_y lane source_x source_layer global_x
+        set escape_ys [list $source_y]
+        for {set step 1} {$step <= 20} {incr step} {
+            foreach candidate_y [list \
+                [expr {$source_y + 0.8 * $step}] \
+                [expr {$source_y - 0.8 * $step}]] {
+                if {$candidate_y >= 0.5 && $candidate_y <= 225.0} {
+                    lappend escape_ys $candidate_y
+                }
+            }
+        }
+        set origin [expr {round($base)}]
+        set last_conflicts {}
+        set rejection_samples {}
+        foreach escape_y $escape_ys {
+            for {set offset 0} {$offset <= 145} {incr offset} {
+                if {$offset == 0} {
+                    set candidates [list $origin]
+                } else {
+                    set candidates [list [expr {$origin + $offset}] [expr {$origin - $offset}]]
+                }
+                foreach x $candidates {
+                    if {$x < 0.31 || $x > 145.05} {
+                        continue
+                    }
+                    set shapes [route_track_shapes local $x $source_y $lane \
+                        $source_x $source_layer $global_x $escape_y]
+                    if {![route_track_is_clear $net $shapes]} {
+                        set last_conflicts $route_track_last_conflicts
+                        if {[llength $rejection_samples] < 4} {
+                            lappend rejection_samples [format "x=%.2f y=%.2f: %s" \
+                                $x $escape_y [join [lrange $route_track_last_conflicts 0 5] {, }]]
+                        }
+                        continue
+                    }
+                    if {![info exists route_net_tracks($net)]} {
+                        set route_net_tracks($net) {}
+                    }
+                    lappend route_net_tracks($net) $x
+                    return [list $x $escape_y]
+                }
+            }
+        }
+        error [format "No free escaped local track remains for %s from %.3f,%.3f; last conflicts: %s; candidates: %s" \
+            $net $source_x $source_y [join $last_conflicts {; }] [join $rejection_samples {; }]]
     }
     set origin [expr {round($base)}]
     set min_x 0.31
@@ -169,6 +241,7 @@ proc allocate_route_track {base net mode args} {
     } elseif {$mode eq "bottom"} {
         set max_x 7.5
     }
+    set last_conflicts {}
     for {set offset 0} {$offset <= 145} {incr offset} {
         if {$offset == 0} {
             set candidates [list $origin]
@@ -181,11 +254,13 @@ proc allocate_route_track {base net mode args} {
             }
             set track_key [format "%.3f" $x]
             set blocked 0
-            foreach occupied [array names route_track_owner] {
-                if {$route_track_owner($occupied) ne $net &&
-                    abs($x - $occupied) < 1.0 - 1.0e-6} {
-                    set blocked 1
-                    break
+            if {$mode eq "global"} {
+                foreach occupied [array names route_track_owner] {
+                    if {$route_track_owner($occupied) ne $net &&
+                        abs($x - $occupied) < 1.0 - 1.0e-6} {
+                        set blocked 1
+                        break
+                    }
                 }
             }
             if {$blocked} {
@@ -193,9 +268,12 @@ proc allocate_route_track {base net mode args} {
             }
             set shapes [route_track_shapes $mode $x {*}$args]
             if {![route_track_is_clear $net $shapes]} {
+                set last_conflicts $route_track_last_conflicts
                 continue
             }
-            set route_track_owner($track_key) $net
+            if {$mode eq "global" || $mode eq "bottom"} {
+                set route_track_owner($track_key) $net
+            }
             if {![info exists route_net_tracks($net)]} {
                 set route_net_tracks($net) {}
             }
@@ -203,8 +281,8 @@ proc allocate_route_track {base net mode args} {
             return $x
         }
     }
-    error [format "No free %s track remains for %s in die range %.2f..%.2f um" \
-        $mode $net $min_x $max_x]
+    error [format "No free %s track remains for %s in die range %.2f..%.2f um; last conflicts: %s" \
+        $mode $net $min_x $max_x [join $last_conflicts {; }]]
 }
 
 proc paint_net_rect {net layer x1 y1 x2 y2} {
@@ -553,14 +631,19 @@ proc route_mos_endpoint {x y pin layer lane net {track_x ""}} {
         paint_via2 $net $ax $lane 1
         return $ax
     }
-    set local_track [allocate_route_track $ax $net local \
-        $ay $lane $ax met2 $track_x]
-    if {abs($ax - $local_track) > 1.0e-6} {
+    lassign [allocate_route_track $ax $net local_escape \
+        $ay $lane $ax met2 $track_x] local_track escape_y
+    if {abs($ay - $escape_y) > 1.0e-6} {
+        paint_m2_path [list [list $ax $ay] [list $ax $escape_y]] $net
+        if {abs($ax - $local_track) > 1.0e-6} {
+            paint_m2_path [list [list $ax $escape_y] [list $local_track $escape_y]] $net
+        }
+    } elseif {abs($ax - $local_track) > 1.0e-6} {
         paint_m2_path [list [list $ax $ay] [list $local_track $ay]] $net
     }
-    paint_via2 $net $local_track $ay 1
-    if {abs($ay - $lane) > 1.0e-6} {
-        paint_m3_path [list [list $local_track $ay] [list $local_track $lane]] $net
+    paint_via2 $net $local_track $escape_y 1
+    if {abs($escape_y - $lane) > 1.0e-6} {
+        paint_m3_path [list [list $local_track $escape_y] [list $local_track $lane]] $net
     }
     paint_via2 $net $local_track $lane 1
     if {abs($local_track - $track_x) > 1.0e-6} {
@@ -596,18 +679,27 @@ proc route_metal_endpoint {x y layer lane track_x net} {
     } else {
         error "Unsupported route endpoint layer $layer"
     }
-    set local_track [allocate_route_track $x $net local \
-        $y $lane $x $source_layer $track_x]
-    if {abs($x - $local_track) > 1.0e-6} {
-        if {$source_layer eq "met2"} {
-            paint_m2_path [list [list $x $y] [list $local_track $y]] $net
-        } else {
+    if {$source_layer eq "met2"} {
+        lassign [allocate_route_track $x $net local_escape \
+            $y $lane $x $source_layer $track_x] local_track escape_y
+        if {abs($y - $escape_y) > 1.0e-6} {
+            paint_m2_path [list [list $x $y] [list $x $escape_y]] $net
+        }
+        if {abs($x - $local_track) > 1.0e-6} {
+            paint_m2_path [list [list $x $escape_y] [list $local_track $escape_y]] $net
+        }
+        paint_via2 $net $local_track $escape_y 1
+    } else {
+        set local_track [allocate_route_track $x $net local \
+            $y $lane $x $source_layer $track_x]
+        if {abs($x - $local_track) > 1.0e-6} {
             paint_m3_path [list [list $x $y] [list $local_track $y]] $net
         }
+        paint_via2 $net $local_track $y 1
     }
-    paint_via2 $net $local_track $y 1
-    if {abs($y - $lane) > 1.0e-6} {
-        paint_m3_path [list [list $local_track $y] [list $local_track $lane]] $net
+    set local_y [expr {$source_layer eq "met2" ? $escape_y : $y}]
+    if {abs($local_y - $lane) > 1.0e-6} {
+        paint_m3_path [list [list $local_track $local_y] [list $local_track $lane]] $net
     }
     paint_via2 $net $local_track $lane 1
     if {abs($local_track - $track_x) > 1.0e-6} {
@@ -750,8 +842,18 @@ proc route_global_nets {} {
         set route_track_owner([format "%.3f" $stripe_x]) $net
         set route_net_tracks($net) [list $stripe_x]
     }
-    set nets [lsort [array names endpoints]]
-    set lane_start 185.0
+    set nets {}
+    foreach priority {VDPWR VGND VAPWR} {
+        if {[info exists endpoints($priority)]} {
+            lappend nets $priority
+        }
+    }
+    foreach net [lsort [array names endpoints]] {
+        if {$net ni $nets} {
+            lappend nets $net
+        }
+    }
+    set lane_start [expr {max(185.0, ceil(($route_content_top + 0.6) / 0.8) * 0.8)}]
     set lane_pitch 0.8
     if {$lane_start <= $route_content_top + 0.5} {
         error [format "Routing lanes at %.2f um overlap layout content ending at %.2f um" \
@@ -823,6 +925,26 @@ proc route_global_nets {} {
         dict set track_by_net $net $track_x
     }
     foreach net $nets {
+        set lane [dict get $lane_by_net $net]
+        set track_x [dict get $track_by_net $net]
+        lassign [dict get $endpoint_bounds $net] min_x max_x
+        route_guard_register $net met2 \
+            [expr {min($track_x, $min_x) - 0.15}] [expr {$lane - 0.15}] \
+            [expr {max($track_x, $max_x) + 0.15}] [expr {$lane + 0.15}]
+        route_guard_register $net met3 \
+            [expr {$track_x - 0.2}] $lane_start \
+            [expr {$track_x + 0.2}] $lane
+    }
+    set route_order {}
+    if {"WAKE" in $nets} {
+        lappend route_order WAKE
+    }
+    foreach net $nets {
+        if {$net ne "WAKE"} {
+            lappend route_order $net
+        }
+    }
+    foreach net $route_order {
         set lane [dict get $lane_by_net $net]
         set track_x [dict get $track_by_net $net]
         puts [format "Routing %s: %d endpoints at %.2f um on track %.2f um" \
@@ -914,7 +1036,7 @@ proc logic_ports {cell} {
 }
 
 proc build_logic_cell {cell} {
-    global top endpoints logic_cell_width logic_cell_height logic_cell_route_rects
+    global top endpoints logic_cell_width logic_cell_height logic_cell_route_rects route_guard_rects
     route_guard_reset
     array unset endpoints
     array set endpoints {}
@@ -1064,9 +1186,9 @@ proc register_logic_cell_obstacles {} {
 
 proc top_analog_devices {} {
     return [list \
+        [list XMTSW p 1 0.5 CT ilimb_h ts VAPWR] \
         [list XMTD n 1 0.5 CT ilimb_h VGND VGND] \
         [list XMTS p 1 8 ts pb VAPWR VAPWR] \
-        [list XMTSW p 1 0.5 CT ilimb_h ts VAPWR] \
         [list XMB0 n 2 1 nb nb VGND VGND] \
         [list XMB1 n 2 1 pb nb VGND VGND] \
         [list XMB2 p 2 4 pb pb VAPWR VAPWR] \
