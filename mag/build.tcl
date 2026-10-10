@@ -1146,12 +1146,13 @@ proc collect_top_pad_endpoints {} {
 
 proc signal_column_reserved_for_endpoint {kind candidate y} {
     global res_group_global_bbox mimcap_global_bbox
-    if {$kind ne "pad" || $y <= 223.0} {
-        return 0
-    }
-    foreach bbox [list $res_group_global_bbox $mimcap_global_bbox] {
-        if {$candidate >= [lindex $bbox 0] - 0.5 &&
-            $candidate <= [lindex $bbox 2] + 0.5} {
+    foreach {bbox margin} [list $res_group_global_bbox 0.6 \
+        $mimcap_global_bbox 1.4] {
+        if {[llength $bbox] != 4} {
+            continue
+        }
+        if {$candidate >= [lindex $bbox 0] - $margin &&
+            $candidate <= [lindex $bbox 2] + $margin} {
             return 1
         }
     }
@@ -1432,12 +1433,8 @@ proc route_logic_row_supply_endpoint {endpoint rail_y net exit_candidates} {
         if {$exit_x < 0.5 || $exit_x > 145.05} {
             continue
         }
-        set shapes [logic_path_shapes met1 0.14 \
-            [list [list $x $y] [list $exit_x $y]]]
-        lappend shapes {*}[viali_contact_shapes $exit_x $y]
-        lappend shapes {*}[logic_path_shapes li 0.17 \
-            [list [list $exit_x $y] [list $exit_x $rail_y]]]
-        lappend shapes {*}[viali_contact_shapes $exit_x $rail_y]
+        set shapes [logic_path_shapes met1 0.30 \
+            [list [list $x $y] [list $exit_x $y] [list $exit_x $rail_y]]]
         lassign [route_guard_shapes_available $net $shapes] available conflict
         if {$available} {
             paint_logic_route_shapes $net $shapes
@@ -1455,16 +1452,6 @@ proc route_analog_supply_endpoint {endpoint rail_y net} {
     set ay $y
     if {$pin eq "G"} {
         set ay [expr {$y + 1.0}]
-    } elseif {$body_pin} {
-        paint_net_rect $net locali [expr {$x - 0.18}] [expr {$y - 0.18}] \
-            [expr {$x + 0.18}] [expr {$y + 0.18}]
-        paint_net_rect $net mcon [expr {$x - 0.10}] [expr {$y - 0.10}] \
-            [expr {$x + 0.10}] [expr {$y + 0.10}]
-        paint_net_rect $net met1 [expr {$x - 0.16}] [expr {$y - 0.16}] \
-            [expr {$x + 0.16}] [expr {$y + 0.16}]
-        box [expr {$x - 0.10}]um [expr {$y - 0.10}]um \
-            [expr {$x + 0.10}]um [expr {$y + 0.10}]um
-        sky130::mcon_draw vert
     }
     set offsets {-2.4 2.4 -2.8 2.8 -3.2 3.2}
     set last_conflict ""
@@ -1475,18 +1462,13 @@ proc route_analog_supply_endpoint {endpoint rail_y net} {
             lappend points [list $x $ay]
         }
         lappend points [list $access_x $ay]
+        lappend points [list $access_x $rail_y]
         set shapes [logic_path_shapes met1 0.30 $points]
-        lappend shapes {*}[viali_contact_shapes $access_x $ay]
-        lappend shapes {*}[logic_path_shapes li 0.17 \
-            [list [list $access_x $ay] [list $access_x $rail_y]]]
-        lappend shapes {*}[viali_contact_shapes $access_x $rail_y]
         lassign [route_guard_shapes_available $net $shapes] available conflict
         if {!$available} {
             set last_conflict $conflict
             continue
         }
-        paint_net_rect $net met1 [expr {$x - 0.22}] [expr {$y - 0.22}] \
-            [expr {$x + 0.22}] [expr {$y + 0.22}]
         paint_logic_route_shapes $net $shapes
         return
     }
