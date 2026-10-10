@@ -823,7 +823,7 @@ proc add_net_pin {path x y pin net kind {rotation 0} {access_override ""}} {
     if {![info exists endpoints($net)]} {
         set endpoints($net) {}
     }
-    lappend endpoints($net) [list $px $py $kind $pin $layer]
+    lappend endpoints($net) [list $px $py $kind $pin $layer [file rootname [file tail $path]]]
 }
 
 proc endpoint_row_key {x y kind pin} {
@@ -1487,7 +1487,7 @@ proc route_logic_row_supply_endpoint {endpoint rail_y net exit_candidates} {
 }
 
 proc route_analog_supply_endpoint {endpoint rail_y net} {
-    lassign $endpoint x y kind pin layer
+    lassign $endpoint x y kind pin layer source_cell
     set body_pin [expr {$pin eq "B"}]
     set base_ay $y
     if {$pin eq "G"} {
@@ -1504,6 +1504,9 @@ proc route_analog_supply_endpoint {endpoint rail_y net} {
     }
     if {$net eq "VAPWR" && $pin eq "S"} {
         set escape_offsets {-0.8 -0.4 0.0 0.4 -1.2 0.8 1.2}
+    }
+    if {$source_cell eq "XM7R" && $pin eq "S" && $net eq "VGND"} {
+        set escape_offsets {-0.6 0.6 -0.8 0.8 -1.2 1.2}
     }
     set last_conflict ""
     foreach escape_offset $escape_offsets {
