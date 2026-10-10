@@ -2059,7 +2059,13 @@ proc route_global_nets {} {
                 for {set index 0} {$index <= 180} {incr index} {
                     set candidate [expr {0.4 + 0.8 * $index}]
                     if {$candidate > 144.4} {continue}
-                    if {$kind eq "pad" && abs($candidate - $x) > 1.21} {
+                    if {$kind eq "pad" && $y > 223.0} {
+                        if {abs($candidate - $x) > 2.01} {continue}
+                        if {abs($candidate - $x) > 1.0e-6 &&
+                            abs($candidate - $x) < 0.7} {
+                            continue
+                        }
+                    } elseif {$kind eq "pad" && abs($candidate - $x) > 1.21} {
                         continue
                     }
                     if {abs($candidate - 8.28) < 0.8 ||
