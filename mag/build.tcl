@@ -22,7 +22,7 @@ if {$layout_target ni {top subckts}} {
 set route_guard_rects {}
 set route_endpoint_rects {}
 set route_guard_enforce_die 0
-array set route_guard_spacing {li 0.17 locali 0.17 mcon 0.19 met1 0.14 met2 0.14 met3 0.3 met4 0.3}
+array set route_guard_spacing {li 0.17 locali 0.17 mcon 0.19 viali 0.19 met1 0.14 met2 0.14 met3 0.3 met4 0.3}
 proc route_guard_reset {} {
     set ::route_guard_rects {}
 }
@@ -40,7 +40,10 @@ proc route_guard_conflicts {net layer x1 y1 x2 y2} {
     set conflicts {}
     foreach rect $route_guard_rects {
         lassign $rect owner other_layer ox1 oy1 ox2 oy2
-        if {$owner eq $net || $other_layer ne $layer} {
+        if {$other_layer ne $layer} {
+            continue
+        }
+        if {$owner eq $net} {
             continue
         }
         if {$xlo < $ox2 + $spacing && $xhi > $ox1 - $spacing &&
@@ -766,6 +769,9 @@ proc add_net_pin {path x y pin net kind {rotation 0} {access_override ""}} {
     } elseif {$kind eq "pad"} {
         lappend shapes [list $net $layer \
             [expr {$px - 0.30}] [expr {$py - 0.30}] [expr {$px + 0.30}] [expr {$py + 0.30}]]
+        lappend shapes [list $net met3 \
+            [expr {$px - 0.31}] [expr {$py - 0.20}] \
+            [expr {$px + 0.31}] [expr {$py + 0.20}]]
     } elseif {$layer in {met1 met2 met3 met4 locali}} {
         lappend shapes [list $net $layer \
             [expr {$px - 0.22}] [expr {$py - 0.22}] [expr {$px + 0.22}] [expr {$py + 0.22}]]
@@ -997,47 +1003,17 @@ proc route_resistor_endpoint {x y pin layer lane track_x net} {
 }
 
 proc allocate_mim_escape {net x y} {
-    global mimcap_global_bbox res_group_global_bbox route_track_last_conflicts
-    set min_x [expr {[lindex $res_group_global_bbox 2] + 0.61}]
-    set max_x [expr {[lindex $mimcap_global_bbox 0] - 0.61}]
-    set last_conflicts {}
-    set x_candidates {}
-    set candidate_x [expr {floor($max_x * 2.0) / 2.0}]
-    for {} {$candidate_x >= $min_x} {set candidate_x [expr {$candidate_x - 0.5}]} {
-        lappend x_candidates $candidate_x
+    global mimcap_global_bbox route_track_last_conflicts
+    set landing_x $x
+    set landing_y [expr {[lindex $mimcap_global_bbox 1] - 0.6}]
+    set shapes [list [list met4 [expr {$x - 0.15}] \
+        [expr {min($y, $landing_y) - 0.15}] [expr {$x + 0.15}] \
+        [expr {max($y, $landing_y) + 0.15}]]]
+    lappend shapes {*}[route_via3_shapes $landing_x $landing_y]
+    if {![route_track_is_clear $net $shapes]} {
+        error "No clear MIM met4 escape for $net at [format %.3f $landing_x],[format %.3f $landing_y]: [join $route_track_last_conflicts {; }]"
     }
-    set y_candidates [list $y]
-    for {set step 1} {$step <= 160} {incr step} {
-        foreach candidate_y [list [expr {$y + 0.5 * $step}] [expr {$y - 0.5 * $step}]] {
-            if {$candidate_y >= 0.5 && $candidate_y <= 225.0} {
-                lappend y_candidates $candidate_y
-            }
-        }
-    }
-    foreach candidate_y $y_candidates {
-        foreach candidate_x $x_candidates {
-            set shapes [list \
-                [list met4 [expr {min($x, $candidate_x)}] [expr {$y - 0.15}] \
-                    [expr {max($x, $candidate_x)}] [expr {$y + 0.15}]] \
-                [list met4 [expr {$candidate_x - 0.15}] \
-                    [expr {min($y, $candidate_y)}] \
-                    [expr {$candidate_x + 0.15}] \
-                    [expr {max($y, $candidate_y)}]] \
-                [list met3 [expr {$candidate_x - 0.31}] [expr {$candidate_y - 0.20}] \
-                    [expr {$candidate_x + 0.31}] [expr {$candidate_y + 0.20}]] \
-                [list met4 [expr {$candidate_x - 0.165}] [expr {$candidate_y - 0.165}] \
-                    [expr {$candidate_x + 0.165}] [expr {$candidate_y + 0.165}]] \
-                [list via3 [expr {$candidate_x - 0.16}] [expr {$candidate_y - 0.16}] \
-                    [expr {$candidate_x + 0.16}] [expr {$candidate_y + 0.16}]] \
-                {*}[route_via2_shapes $candidate_x $candidate_y]]
-            if {[route_track_is_clear $net $shapes]} {
-                return [list $candidate_x $candidate_y]
-            }
-            set last_conflicts $route_track_last_conflicts
-        }
-    }
-    error [format "No clear MIM met4 escape for %s in %.3f..%.3f um; last conflicts: %s" \
-        $net $min_x $max_x [join $last_conflicts {; }]]
+    return [list $landing_x $landing_y]
 }
 
 proc route_mim_endpoint {x y pin lane track_x net} {
@@ -1153,7 +1129,10 @@ proc collect_top_pad_endpoints {} {
 
 proc signal_column_reserved_for_endpoint {kind pin candidate y lane pad_escape_y} {
     global res_group_global_bbox mimcap_global_bbox
-    if {$pad_escape_y ne ""} {
+    if {$kind eq "pad"} {
+        return 0
+    }
+    if {$kind ne "pad" && $pad_escape_y ne ""} {
         set y $pad_escape_y
     }
     set ylo [expr {min($y, $lane)}]
@@ -1470,31 +1449,38 @@ proc route_logic_row_supply_endpoint {endpoint rail_y net exit_candidates} {
 proc route_analog_supply_endpoint {endpoint rail_y net} {
     lassign $endpoint x y kind pin layer
     set body_pin [expr {$pin eq "B"}]
-    set ay $y
+    set base_ay $y
     if {$pin eq "G"} {
-        set ay [expr {$y + 1.0}]
+        set base_ay [expr {$y + 1.0}]
     }
     set offsets {-2.4 2.4 -2.8 2.8 -3.2 3.2}
+    set escape_offsets {0.0 -0.4 0.4 -0.8 0.8 -1.2 1.2}
     set last_conflict ""
-    foreach offset $offsets {
-        set access_x [expr {$x + $offset}]
-        set points [list [list $x $y]]
-        if {$pin eq "G" || $body_pin} {
-            lappend points [list $x $ay]
-        }
-        lappend points [list $access_x $ay]
-        set shapes [logic_path_shapes met1 0.30 $points]
-        lappend shapes {*}[viali_contact_shapes $access_x $ay]
-        lappend shapes {*}[logic_path_shapes li 0.17 \
-            [list [list $access_x $ay] [list $access_x $rail_y]]]
-        lappend shapes {*}[viali_contact_shapes $access_x $rail_y]
-        lassign [route_guard_shapes_available $net $shapes] available conflict
-        if {!$available} {
-            set last_conflict $conflict
+    foreach escape_offset $escape_offsets {
+        set ay [expr {$base_ay + $escape_offset}]
+        if {$ay < 0.5 || $ay > 225.0} {
             continue
         }
-        paint_logic_route_shapes $net $shapes
-        return
+        foreach offset $offsets {
+            set access_x [expr {$x + $offset}]
+            set points [list [list $x $y]]
+            if {$pin eq "G" || $body_pin || abs($ay - $y) > 1.0e-6} {
+                lappend points [list $x $ay]
+            }
+            lappend points [list $access_x $ay]
+            set shapes [logic_path_shapes met1 0.14 $points]
+            lappend shapes {*}[viali_contact_shapes $access_x $ay]
+            lappend shapes {*}[logic_path_shapes li 0.17 \
+                [list [list $access_x $ay] [list $access_x $rail_y]]]
+            lappend shapes {*}[viali_contact_shapes $access_x $rail_y]
+            lassign [route_guard_shapes_available $net $shapes] available conflict
+            if {!$available} {
+                set last_conflict $conflict
+                continue
+            }
+            paint_logic_route_shapes $net $shapes
+            return
+        }
     }
     error "No row-rail access for $net at [format %.3f $x],[format %.3f $y]: $last_conflict"
 }
@@ -1583,62 +1569,22 @@ proc route_resistor_supply_endpoint {endpoint net} {
     error "No clear resistor supply escape for $net at $x,$y: [join $last_conflicts {; }]"
 }
 
-proc route_ground_pad_tie {endpoint rail_y} {
+proc route_ground_pad_tie {endpoint} {
     global route_track_last_conflicts
     set route_track_last_conflicts {}
     lassign $endpoint x y kind pin layer
-    set escape_y [expr {$y > 223.0 ? 219.0 : $y + 1.2}]
-    set ranked {}
-    set last_conflicts {}
-    for {set index 0} {$index <= 180} {incr index} {
-        set candidate [expr {0.4 + 0.8 * $index}]
-        if {$candidate > 144.4} {
-            continue
-        }
-        lappend ranked [list [expr {abs($candidate - $x)}] $candidate]
+    set stripe_x 11.04
+    set shapes [route_via3_shapes $x $y]
+    lappend shapes [list met3 [expr {min($x, $stripe_x) - 0.2}] \
+        [expr {$y - 0.2}] [expr {max($x, $stripe_x) + 0.2}] \
+        [expr {$y + 0.2}]]
+    lappend shapes {*}[route_via3_shapes $stripe_x $y]
+    if {![route_track_is_clear VGND $shapes]} {
+        error "No clear VGND pad tie for $pin at [format %.3f $x],[format %.3f $y]: [join $route_track_last_conflicts {; }]"
     }
-    set ranked [lsort -real -index 0 $ranked]
-    set selected ""
-    foreach item $ranked {
-        set candidate [lindex $item 1]
-        set shapes {}
-        lappend shapes [list met4 [expr {$x - 0.15}] \
-            [expr {min($y, $escape_y) - 0.15}] [expr {$x + 0.15}] \
-            [expr {max($y, $escape_y) + 0.15}]]
-        if {abs($candidate - $x) > 1.0e-6} {
-            lappend shapes [list met4 [expr {min($x, $candidate) - 0.15}] \
-                [expr {$escape_y - 0.15}] [expr {max($x, $candidate) + 0.15}] \
-                [expr {$escape_y + 0.15}]]
-        }
-        lappend shapes {*}[route_via3_shapes $candidate $escape_y]
-        lappend shapes [list met3 [expr {$candidate - 0.2}] \
-            [expr {min($escape_y, $rail_y) - 0.2}] [expr {$candidate + 0.2}] \
-            [expr {max($escape_y, $rail_y) + 0.2}]]
-        lappend shapes {*}[route_via2_shapes $candidate $rail_y]
-        lappend shapes {*}[route_via1_shapes $candidate $rail_y]
-        if {[route_track_is_clear VGND $shapes]} {
-            set selected $candidate
-            break
-        }
-        set last_conflicts $route_track_last_conflicts
-    }
-    if {$selected eq ""} {
-        error "No clear VGND pad escape for $pin at [format %.3f $x],[format %.3f $y]: [join $last_conflicts {; }]"
-    }
-    paint_net_rect VGND met4 [expr {$x - 0.15}] \
-        [expr {min($y, $escape_y) - 0.15}] [expr {$x + 0.15}] \
-        [expr {max($y, $escape_y) + 0.15}]
-    if {abs($selected - $x) > 1.0e-6} {
-        paint_net_rect VGND met4 [expr {min($x, $selected) - 0.15}] \
-            [expr {$escape_y - 0.15}] [expr {max($x, $selected) + 0.15}] \
-            [expr {$escape_y + 0.15}]
-    }
-    paint_via3 VGND $selected $escape_y
-    if {abs($escape_y - $rail_y) > 1.0e-6} {
-        paint_m3_path [list [list $selected $escape_y] [list $selected $rail_y]] VGND
-    }
-    paint_via2 VGND $selected $rail_y 1
-    paint_via1 VGND $selected $rail_y
+    paint_via3 VGND $x $y
+    paint_m3_path [list [list $x $y] [list $stripe_x $y]] VGND
+    paint_via3 VGND $stripe_x $y
 }
 
 proc endpoint_local_y_bounds {endpoint} {
@@ -1711,12 +1657,12 @@ proc local_m1_access_shapes {endpoint column escape_y axis} {
     return $shapes
 }
 
-proc mim_c2_escape_y {} {
+proc mim_c2_escape_y {y} {
     global mimcap_global_bbox
     if {[llength $mimcap_global_bbox] != 4} {
         error "MIM escape requires capacitor placement"
     }
-    return [expr {[lindex $mimcap_global_bbox 3] + 0.6}]
+    return [expr {[lindex $mimcap_global_bbox 1] - 0.6}]
 }
 
 proc deterministic_stub_shapes {net endpoint column lane {pad_escape_y ""} \
@@ -1724,20 +1670,16 @@ proc deterministic_stub_shapes {net endpoint column lane {pad_escape_y ""} \
     lassign $endpoint x y kind pin layer
     set shapes {}
     if {$kind eq "pad"} {
-        if {$pad_escape_y eq ""} {
-            set pad_escape_y [expr {$y > 223.0 ? $y - 1.2 : $y + 1.2}]
+        lappend shapes {*}[route_via3_shapes $x $y]
+        if {abs($x - $column) > 1.0e-6} {
+            lappend shapes {*}[route_via2_shapes $x $y 0]
+            lappend shapes [list met2 [expr {min($x, $column) - 0.15}] \
+                [expr {$y - 0.15}] [expr {max($x, $column) + 0.15}] \
+                [expr {$y + 0.15}]]
+            lappend shapes {*}[route_via2_shapes $column $y 0]
         }
-        set escape_y $pad_escape_y
-        lappend shapes [list met4 [expr {$x - 0.15}] \
-            [expr {min($y, $escape_y) - 0.15}] [expr {$x + 0.15}] \
-            [expr {max($y, $escape_y) + 0.15}]]
-        lappend shapes [list met4 [expr {min($x, $column) - 0.15}] \
-            [expr {$escape_y - 0.15}] [expr {max($x, $column) + 0.15}] \
-            [expr {$escape_y + 0.15}]]
-        lappend shapes {*}[route_via3_shapes $column $escape_y]
-        set y $escape_y
     } elseif {$kind eq "capacitor" && $pin eq "C2"} {
-        set escape_y [mim_c2_escape_y]
+        set escape_y [mim_c2_escape_y $y]
         lappend shapes [list met4 [expr {$x - 0.15}] \
             [expr {min($y, $escape_y) - 0.15}] [expr {$x + 0.15}] \
             [expr {max($y, $escape_y) + 0.15}]]
@@ -1746,6 +1688,24 @@ proc deterministic_stub_shapes {net endpoint column lane {pad_escape_y ""} \
             [expr {$escape_y + 0.15}]]
         lappend shapes {*}[route_via3_shapes $column $escape_y]
         set y $escape_y
+    } elseif {$kind eq "resistor"} {
+        if {$local_escape_y eq ""} {
+            set local_escape_y $y
+        }
+        lappend shapes {*}[route_via2_shapes $x $y 0]
+        if {abs($y - $local_escape_y) > 1.0e-6} {
+            lappend shapes [list met2 [expr {$x - 0.15}] \
+                [expr {min($y, $local_escape_y) - 0.15}] \
+                [expr {$x + 0.15}] [expr {max($y, $local_escape_y) + 0.15}]]
+        }
+        if {abs($x - $column) > 1.0e-6} {
+            lappend shapes [list met2 [expr {min($x, $column) - 0.15}] \
+                [expr {$local_escape_y - 0.15}] \
+                [expr {max($x, $column) + 0.15}] \
+                [expr {$local_escape_y + 0.15}]]
+            lappend shapes {*}[route_via2_shapes $column $local_escape_y 0]
+        }
+        set y $local_escape_y
     } elseif {$kind in {logic mos}} {
         if {$local_escape_y eq ""} {
             set local_escape_y $y
@@ -1774,20 +1734,14 @@ proc route_deterministic_signal_endpoint {net endpoint column lane \
     {pad_escape_y ""} {local_escape_y ""} {local_escape_axis vertical}} {
     lassign $endpoint x y kind pin layer
     if {$kind eq "pad"} {
-        if {$pad_escape_y eq ""} {
-            set pad_escape_y [expr {$y > 223.0 ? $y - 1.2 : $y + 1.2}]
+        paint_via3 $net $x $y
+        if {abs($x - $column) > 1.0e-6} {
+            paint_via2 $net $x $y 0
+            paint_m2_path [list [list $x $y] [list $column $y]] $net
+            paint_via2 $net $column $y 0
         }
-        set escape_y $pad_escape_y
-        paint_net_rect $net met4 [expr {$x - 0.15}] \
-            [expr {min($y, $escape_y) - 0.15}] [expr {$x + 0.15}] \
-            [expr {max($y, $escape_y) + 0.15}]
-        paint_net_rect $net met4 [expr {min($x, $column) - 0.15}] \
-            [expr {$escape_y - 0.15}] [expr {max($x, $column) + 0.15}] \
-            [expr {$escape_y + 0.15}]
-        paint_via3 $net $column $escape_y
-        set y $escape_y
     } elseif {$kind eq "capacitor" && $pin eq "C2"} {
-        set escape_y [mim_c2_escape_y]
+        set escape_y [mim_c2_escape_y $y]
         paint_net_rect $net met4 [expr {$x - 0.15}] \
             [expr {min($y, $escape_y) - 0.15}] [expr {$x + 0.15}] \
             [expr {max($y, $escape_y) + 0.15}]
@@ -1798,6 +1752,20 @@ proc route_deterministic_signal_endpoint {net endpoint column lane \
         }
         paint_via3 $net $column $escape_y
         set y $escape_y
+    } elseif {$kind eq "resistor"} {
+        if {$local_escape_y eq ""} {
+            set local_escape_y $y
+        }
+        paint_via2 $net $x $y 0
+        if {abs($y - $local_escape_y) > 1.0e-6} {
+            paint_m2_path [list [list $x $y] [list $x $local_escape_y]] $net
+        }
+        if {abs($x - $column) > 1.0e-6} {
+            paint_m2_path [list [list $x $local_escape_y] \
+                [list $column $local_escape_y]] $net
+            paint_via2 $net $column $local_escape_y 0
+        }
+        set y $local_escape_y
     } elseif {$kind in {logic mos}} {
         if {$local_escape_y eq ""} {
             set local_escape_y $y
@@ -1843,15 +1811,6 @@ proc route_global_nets {} {
     }
     route_logic_row_supplies
     route_analog_row_supplies
-    set vgnd_rail_y ""
-    foreach row [lsort -integer [array names logic_row_members]] {
-        lassign $logic_row_bounds($row) row_x1 row_bottom row_x2 row_top row_type
-        set vgnd_rail_y [expr {$row_bottom - 2.1}]
-        break
-    }
-    if {$vgnd_rail_y eq ""} {
-        error "No logic-row VGND rail is available for unused output pad ties"
-    }
     foreach net [array names endpoints] {
         if {$net ni {VAPWR VDPWR VGND}} {
             continue
@@ -1859,7 +1818,7 @@ proc route_global_nets {} {
         foreach endpoint $endpoints($net) {
             lassign $endpoint x y kind pin layer
             if {$kind eq "pad" && $net eq "VGND"} {
-                route_ground_pad_tie $endpoint $vgnd_rail_y
+                route_ground_pad_tie $endpoint
             } elseif {$kind eq "resistor"} {
                 route_resistor_supply_endpoint $endpoint $net
             }
@@ -1993,10 +1952,24 @@ proc route_global_nets {} {
                 set local_escape_candidates [list [list $y vertical]]
                 if {$kind in {logic mos}} {
                     set local_escape_candidates [local_m1_escape_candidates $endpoint]
+                } elseif {$kind eq "resistor"} {
+                    for {set step 1} {$step <= 15} {incr step} {
+                        set delta [expr {0.2 * $step}]
+                        foreach escape_y [list [expr {$y + $delta}] \
+                            [expr {$y - $delta}]] {
+                            if {$escape_y >= 0.5 && $escape_y <= 225.0} {
+                                lappend local_escape_candidates \
+                                    [list $escape_y vertical]
+                            }
+                        }
+                    }
                 }
                 for {set index 0} {$index <= 180} {incr index} {
                     set candidate [expr {0.4 + 0.8 * $index}]
                     if {$candidate > 144.4} {continue}
+                    if {$kind eq "pad" && abs($candidate - $x) > 1.21} {
+                        continue
+                    }
                     if {abs($candidate - 8.28) < 0.8 ||
                         abs($candidate - 11.04) < 0.8 ||
                         abs($candidate - 13.80) < 0.8} {
@@ -2004,10 +1977,19 @@ proc route_global_nets {} {
                     }
                     if {[signal_column_reserved_for_endpoint $kind $pin $candidate \
                         $y $lane $pad_escape_y]} {
+                        if {$kind eq "pad" && [llength $candidate_failures] < 8} {
+                            lappend candidate_failures [format \
+                                "x=%.3f reserved by footprint" $candidate]
+                        }
                         continue
                     }
                     set colkey [format "%.3f" $candidate]
                     if {[info exists route_signal_column_owner($colkey)]} {
+                        if {$kind eq "pad" && [llength $candidate_failures] < 8} {
+                            lappend candidate_failures [format \
+                                "x=%.3f assigned to %s" $candidate \
+                                $route_signal_column_owner($colkey)]
+                        }
                         continue
                     }
                     if {$kind eq "capacitor" && $pin eq "C2"} {
@@ -2015,8 +1997,8 @@ proc route_global_nets {} {
                             ![info exists mimcap_global_bbox]} {
                             error "MIM escape requires resistor and capacitor placement"
                         }
-                        if {$candidate < [lindex $res_group_global_bbox 2] + 0.61 ||
-                            $candidate > [lindex $mimcap_global_bbox 0] - 0.61} {
+                        if {$candidate < max([lindex $res_group_global_bbox 2], \
+                            [lindex $mimcap_global_bbox 2]) + 0.61} {
                             continue
                         }
                     }
@@ -2046,7 +2028,7 @@ proc route_global_nets {} {
                     }
                 }
                 if {$kind eq "capacitor" && $pin eq "C2"} {
-                    set ranked [lsort -decreasing -real -index 2 $ranked]
+                    set ranked [lsort -real -index 0 $ranked]
                 } else {
                     set ranked [lsort -real -index 0 $ranked]
                 }
@@ -2090,7 +2072,7 @@ proc route_global_nets {} {
             set route_signal_column_owner($colkey) $net
             set key "$net|[endpoint_row_key $x $y $kind $pin]"
             dict set column_by_endpoint $key $selected
-            if {$kind in {logic mos}} {
+            if {$kind in {logic mos resistor}} {
                 dict set local_escape_by_endpoint $key \
                     [list $selected_escape_y $selected_escape_axis]
             }
@@ -2773,7 +2755,7 @@ proc place_resistor_group {base_y} {
     lassign $bbox x1 y1 x2 y2
     set rotation 90
     lassign [transform_rect $x1 $y1 $x2 $y2 $rotation] rx1 ry1 rx2 ry2
-    set x [expr {15.0 - $rx1}]
+    set x [expr {2.0 - $rx1}]
     set y [expr {$base_y - $ry1}]
     set xlo [expr {$x + $rx1}]
     set ylo [expr {$y + $ry1}]
@@ -2829,10 +2811,11 @@ proc place_mim_cap {base_y} {
     lassign $res_bbox rx1 ry1 rx2 ry2
     set bbox [make_mim_cap]
     lassign $bbox x1 y1 x2 y2
-    set rotation 180
+    set rotation 90
     lassign [transform_rect $x1 $y1 $x2 $y2 $rotation] bx1 by1 bx2 by2
-    set x [expr {[lindex $res_group_global_bbox 2] + 3.0 - $bx1}]
-    set y [expr {$base_y - $by1}]
+    set x [expr {([lindex $res_group_global_bbox 0] + \
+        [lindex $res_group_global_bbox 2] - $bx1 - $bx2) / 2.0}]
+    set y [expr {[lindex $res_group_global_bbox 3] + 3.0 - $by1}]
     set xlo [expr {$x + $bx1}]
     set ylo [expr {$y + $by1}]
     set xhi [expr {$x + $bx2}]
