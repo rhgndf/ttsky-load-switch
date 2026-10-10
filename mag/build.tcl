@@ -453,6 +453,14 @@ proc make_mos {parent name type w l} {
         sky130::sky130_fd_pr__pfet_g5v0d10v5_draw $params
     }
     save $cellpath
+    lassign [label_center $cellpath B mos] bx by body_layer
+    if {$body_layer ni {mvnsubdiffcont mvpsubdiffcont}} {
+        error "Unsupported body-contact layer $body_layer in $cellpath"
+    }
+    box [expr {$bx - 0.18}]um [expr {$by - 0.18}]um \
+        [expr {$bx + 0.18}]um [expr {$by + 0.18}]um
+    paint metal1
+    save $cellpath
     load $parent
 }
 
@@ -813,13 +821,6 @@ proc route_mos_endpoint {x y pin layer lane net {track_x ""}} {
     }
     if {$pin eq "G"} {
         set ay [expr {$y + 1.0}]
-    }
-    if {$pin eq "B"} {
-        paint_net_rect $net locali [expr {$x - 0.165}] [expr {$y - 0.165}] [expr {$x + 0.165}] [expr {$y + 0.165}]
-        paint_net_rect $net mcon [expr {$x - 0.085}] [expr {$y - 0.085}] [expr {$x + 0.085}] [expr {$y + 0.085}]
-        paint_net_rect $net met1 [expr {$x - 0.145}] [expr {$y - 0.145}] [expr {$x + 0.145}] [expr {$y + 0.145}]
-        box [expr {$x - 0.085}]um [expr {$y - 0.085}]um [expr {$x + 0.085}]um [expr {$y + 0.085}]um
-        sky130::mcon_draw vert
     }
     if {$pin eq "G"} {
         paint_net_rect $net met1 [expr {$x - 0.08}] [expr {min($y,$ay) - 0.08}] [expr {$x + 0.08}] [expr {max($y,$ay) + 0.08}]
@@ -2309,15 +2310,6 @@ proc route_logic_supply_terminal {endpoint rail_y net} {
         set ax [expr {$x + 0.8}]
     }
     if {$body_pin} {
-        paint_net_rect $net locali [expr {$x - 0.165}] [expr {$y - 0.165}] \
-            [expr {$x + 0.165}] [expr {$y + 0.165}]
-        paint_net_rect $net mcon [expr {$x - 0.085}] [expr {$y - 0.085}] \
-            [expr {$x + 0.085}] [expr {$y + 0.085}]
-        paint_net_rect $net met1 [expr {$x - 0.145}] [expr {$y - 0.145}] \
-            [expr {$x + 0.145}] [expr {$y + 0.145}]
-        box [expr {$x - 0.085}]um [expr {$y - 0.085}]um \
-            [expr {$x + 0.085}]um [expr {$y + 0.085}]um
-        sky130::mcon_draw vert
         set ay [expr {$y - 0.6}]
         set offsets {-2.4 2.4 -2.8 2.8}
     } else {
