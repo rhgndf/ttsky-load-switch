@@ -1779,7 +1779,9 @@ proc deterministic_stub_shapes {net endpoint column lane {pad_escape_y ""} \
         if {$local_escape_y eq ""} {
             set local_escape_y $y
         }
-        lappend shapes {*}[route_via2_shapes $x $y 0]
+        if {$layer eq "met3"} {
+            lappend shapes {*}[route_via2_shapes $x $y 0]
+        }
         if {abs($y - $local_escape_y) > 1.0e-6} {
             lappend shapes [list met2 [expr {$x - 0.15}] \
                 [expr {min($y, $local_escape_y) - 0.15}] \
@@ -1857,7 +1859,9 @@ proc route_deterministic_signal_endpoint {net endpoint column lane \
         if {$local_escape_y eq ""} {
             set local_escape_y $y
         }
-        paint_via2 $net $x $y 0
+        if {$layer eq "met3"} {
+            paint_via2 $net $x $y 0
+        }
         if {abs($y - $local_escape_y) > 1.0e-6} {
             paint_m2_path [list [list $x $y] [list $x $local_escape_y]] $net
         }
