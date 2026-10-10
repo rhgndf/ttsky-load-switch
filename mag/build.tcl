@@ -1736,13 +1736,22 @@ proc deterministic_stub_shapes {net endpoint column lane {pad_escape_y ""} \
     set shapes {}
     if {$kind eq "pad"} {
         lappend shapes {*}[route_via3_shapes $x $y]
-        if {abs($x - $column) > 1.0e-6} {
-            lappend shapes {*}[route_via2_shapes $x $y 0]
-            lappend shapes [list met2 [expr {min($x, $column) - 0.15}] \
-                [expr {$y - 0.15}] [expr {max($x, $column) + 0.15}] \
-                [expr {$y + 0.15}]]
-            lappend shapes {*}[route_via2_shapes $column $y 0]
+        if {$pad_escape_y eq ""} {
+            set pad_escape_y $y
         }
+        if {abs($y - $pad_escape_y) > 1.0e-6} {
+            lappend shapes [list met3 [expr {$x - 0.2}] \
+                [expr {min($y, $pad_escape_y) - 0.2}] \
+                [expr {$x + 0.2}] [expr {max($y, $pad_escape_y) + 0.2}]]
+        }
+        if {abs($x - $column) > 1.0e-6} {
+            lappend shapes {*}[route_via2_shapes $x $pad_escape_y 0]
+            lappend shapes [list met2 [expr {min($x, $column) - 0.15}] \
+                [expr {$pad_escape_y - 0.15}] [expr {max($x, $column) + 0.15}] \
+                [expr {$pad_escape_y + 0.15}]]
+            lappend shapes {*}[route_via2_shapes $column $pad_escape_y 0]
+        }
+        set y $pad_escape_y
     } elseif {$kind eq "capacitor" && $pin eq "C2"} {
         lassign [mim_c2_escape_point $x] escape_x escape_y
         lappend shapes [list met4 [expr {min($x, $escape_x) - 0.15}] \
@@ -1803,11 +1812,19 @@ proc route_deterministic_signal_endpoint {net endpoint column lane \
     lassign $endpoint x y kind pin layer
     if {$kind eq "pad"} {
         paint_via3 $net $x $y
-        if {abs($x - $column) > 1.0e-6} {
-            paint_via2 $net $x $y 0
-            paint_m2_path [list [list $x $y] [list $column $y]] $net
-            paint_via2 $net $column $y 0
+        if {$pad_escape_y eq ""} {
+            set pad_escape_y $y
         }
+        if {abs($y - $pad_escape_y) > 1.0e-6} {
+            paint_m3_path [list [list $x $y] [list $x $pad_escape_y]] $net
+        }
+        if {abs($x - $column) > 1.0e-6} {
+            paint_via2 $net $x $pad_escape_y 0
+            paint_m2_path [list [list $x $pad_escape_y] \
+                [list $column $pad_escape_y]] $net
+            paint_via2 $net $column $pad_escape_y 0
+        }
+        set y $pad_escape_y
     } elseif {$kind eq "capacitor" && $pin eq "C2"} {
         lassign [mim_c2_escape_point $x] escape_x escape_y
         if {abs($x - $escape_x) > 1.0e-6} {
