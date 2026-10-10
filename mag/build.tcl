@@ -1463,6 +1463,17 @@ proc route_logic_row_supply_endpoint {endpoint rail_y net exit_candidates} {
 proc route_analog_supply_endpoint {endpoint rail_y net} {
     lassign $endpoint x y kind pin layer
     set body_pin [expr {$pin eq "B"}]
+    if {$body_pin} {
+        paint_net_rect $net locali \
+            [expr {$x - 0.25}] [expr {$y - 0.25}] \
+            [expr {$x + 0.25}] [expr {$y + 0.25}]
+        paint_net_rect $net mcon \
+            [expr {$x - 0.12}] [expr {$y - 0.12}] \
+            [expr {$x + 0.12}] [expr {$y + 0.12}]
+        paint_net_rect $net met1 \
+            [expr {$x - 0.22}] [expr {$y - 0.22}] \
+            [expr {$x + 0.22}] [expr {$y + 0.22}]
+    }
     set ay $y
     if {$pin eq "G"} {
         set ay [expr {$y + 1.0}]
