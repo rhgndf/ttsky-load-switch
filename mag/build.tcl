@@ -1652,7 +1652,7 @@ proc local_m1_escape_candidates {endpoint net} {
     lassign $endpoint x y kind pin layer
     lassign [endpoint_local_y_bounds $endpoint] lower upper
     set candidates {}
-    if {$net eq "ts" && $kind eq "mos" && $pin eq "D"} {
+    if {$net in {ts CT} && $kind eq "mos" && $pin eq "D"} {
         lappend candidates [list [expr {$y + 0.4}] vertical]
     }
     lappend candidates [list $y vertical]
