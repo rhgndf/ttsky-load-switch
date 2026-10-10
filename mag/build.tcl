@@ -1666,7 +1666,7 @@ proc local_m1_escape_candidates {endpoint net} {
         lappend candidates [list [expr {$y + 0.42}] vertical]
     }
     if {$net in {ts CT out1} && $kind eq "mos" && $pin eq "D"} {
-        lappend candidates [list [expr {$y + 0.4}] vertical]
+        lappend candidates [list [expr {$y + 0.6}] vertical]
     }
     lappend candidates [list $y vertical]
     for {set step 1} {$step <= 4} {incr step} {

@@ -1,0 +1,114 @@
+magic
+tech sky130A
+magscale 1 2
+timestamp 1791629352
+<< checkpaint >>
+rect -1568 -1757 1568 1757
+<< nwell >>
+rect -308 -497 308 497
+<< mvpmos >>
+rect -50 -200 50 200
+<< mvpdiff >>
+rect -108 188 -50 200
+rect -108 -188 -96 188
+rect -62 -188 -50 188
+rect -108 -200 -50 -188
+rect 50 188 108 200
+rect 50 -188 62 188
+rect 96 -188 108 188
+rect 50 -200 108 -188
+<< mvpdiffc >>
+rect -96 -188 -62 188
+rect 62 -188 96 188
+<< mvnsubdiff >>
+rect -242 419 242 431
+rect -242 385 -134 419
+rect 134 385 242 419
+rect -242 373 242 385
+rect -242 323 -184 373
+rect -242 -323 -230 323
+rect -196 -323 -184 323
+rect 184 323 242 373
+rect -242 -373 -184 -323
+rect 184 -323 196 323
+rect 230 -323 242 323
+rect 184 -373 242 -323
+rect -242 -385 242 -373
+rect -242 -419 -134 -385
+rect 134 -419 242 -385
+rect -242 -431 242 -419
+<< mvnsubdiffcont >>
+rect -134 385 134 419
+rect -230 -323 -196 323
+rect 196 -323 230 323
+rect -134 -419 134 -385
+<< poly >>
+rect -50 281 50 297
+rect -50 247 -34 281
+rect 34 247 50 281
+rect -50 200 50 247
+rect -50 -247 50 -200
+rect -50 -281 -34 -247
+rect 34 -281 50 -247
+rect -50 -297 50 -281
+<< polycont >>
+rect -34 247 34 281
+rect -34 -281 34 -247
+<< locali >>
+rect -230 385 -134 419
+rect 134 385 230 419
+rect -230 323 -196 385
+rect 196 323 230 385
+rect -50 247 -34 281
+rect 34 247 50 281
+rect -96 188 -62 204
+rect -96 -204 -62 -188
+rect 62 188 96 204
+rect 62 -204 96 -188
+rect -50 -281 -34 -247
+rect 34 -281 50 -247
+rect -230 -385 -196 -323
+rect -33 -385 33 -369
+rect 196 -385 230 -323
+rect -230 -419 -134 -385
+rect 134 -419 230 -385
+rect -33 -435 33 -419
+<< viali >>
+rect -34 247 34 281
+rect -96 -188 -62 188
+rect 62 -188 96 188
+rect -34 -281 34 -247
+rect -17 -419 17 -385
+<< metal1 >>
+rect -46 281 46 287
+rect -46 247 -34 281
+rect 34 247 46 281
+rect -46 241 46 247
+rect -102 188 -56 200
+rect -102 -188 -96 188
+rect -62 -188 -56 188
+rect -102 -200 -56 -188
+rect 56 188 102 200
+rect 56 -188 62 188
+rect 96 -188 102 188
+rect 56 -200 102 -188
+rect -46 -247 46 -241
+rect -46 -281 -34 -247
+rect 34 -281 46 -247
+rect -46 -287 46 -281
+rect -30 -385 30 -372
+rect -30 -419 -17 -385
+rect 17 -419 30 -385
+rect -30 -432 30 -419
+<< labels >>
+rlabel mvnsubdiffcont 0 -402 0 -402 0 B
+port 4 nsew
+rlabel mvpdiffc -79 0 -79 0 0 D
+port 5 nsew
+rlabel mvpdiffc 79 0 79 0 0 S
+port 6 nsew
+rlabel polycont 0 264 0 264 0 G
+port 7 nsew
+<< properties >>
+string FIXED_BBOX -213 -402 213 402
+<< end >>
