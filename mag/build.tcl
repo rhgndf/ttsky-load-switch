@@ -1648,10 +1648,14 @@ proc endpoint_local_y_bounds {endpoint} {
         [expr {min(225.26, $y + 1.6)}]]
 }
 
-proc local_m1_escape_candidates {endpoint} {
+proc local_m1_escape_candidates {endpoint net} {
     lassign $endpoint x y kind pin layer
     lassign [endpoint_local_y_bounds $endpoint] lower upper
-    set candidates [list [list $y vertical]]
+    set candidates {}
+    if {$net eq "ts" && $kind eq "mos" && $pin eq "D"} {
+        lappend candidates [list [expr {$y + 0.4}] vertical]
+    }
+    lappend candidates [list $y vertical]
     for {set step 1} {$step <= 4} {incr step} {
         foreach direction {-1 1} {
             set escape_y [expr {$y + $direction * 0.4 * $step}]
@@ -2021,7 +2025,8 @@ proc route_global_nets {} {
                 }
                 set local_escape_candidates [list [list $y vertical]]
                 if {$kind in {logic mos}} {
-                    set local_escape_candidates [local_m1_escape_candidates $endpoint]
+                    set local_escape_candidates \
+                        [local_m1_escape_candidates $endpoint $net]
                 } elseif {$kind eq "resistor"} {
                     for {set step 1} {$step <= 15} {incr step} {
                         set delta [expr {0.2 * $step}]
