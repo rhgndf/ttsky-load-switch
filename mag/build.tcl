@@ -1498,6 +1498,10 @@ proc route_analog_supply_endpoint {endpoint rail_y net} {
     if {$net eq "VGND" && $pin eq "S" && $y < 10.0} {
         set escape_offsets {-0.4 0.0 0.4 -0.8 0.8 -1.2 1.2}
     }
+    if {$net eq "VGND" && $pin eq "S" && $y > 20.0 && $y < 21.0} {
+        set offsets {1.2 -1.2 1.6 -1.6 2.0 -2.0 2.4 -2.4 2.8 -2.8 3.2 -3.2}
+        set escape_offsets {-0.6 0.0 -0.4 0.4 -0.8 0.8 -1.2 1.2}
+    }
     if {$net eq "VAPWR" && $pin eq "S"} {
         set escape_offsets {-0.8 -0.4 0.0 0.4 -1.2 0.8 1.2}
     }
