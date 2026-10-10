@@ -1433,8 +1433,12 @@ proc route_logic_row_supply_endpoint {endpoint rail_y net exit_candidates} {
         if {$exit_x < 0.5 || $exit_x > 145.05} {
             continue
         }
-        set shapes [logic_path_shapes met1 0.30 \
-            [list [list $x $y] [list $exit_x $y] [list $exit_x $rail_y]]]
+        set shapes [logic_path_shapes met1 0.14 \
+            [list [list $x $y] [list $exit_x $y]]]
+        lappend shapes {*}[viali_contact_shapes $exit_x $y]
+        lappend shapes {*}[logic_path_shapes li 0.17 \
+            [list [list $exit_x $y] [list $exit_x $rail_y]]]
+        lappend shapes {*}[viali_contact_shapes $exit_x $rail_y]
         lassign [route_guard_shapes_available $net $shapes] available conflict
         if {$available} {
             paint_logic_route_shapes $net $shapes
@@ -1462,8 +1466,11 @@ proc route_analog_supply_endpoint {endpoint rail_y net} {
             lappend points [list $x $ay]
         }
         lappend points [list $access_x $ay]
-        lappend points [list $access_x $rail_y]
         set shapes [logic_path_shapes met1 0.30 $points]
+        lappend shapes {*}[viali_contact_shapes $access_x $ay]
+        lappend shapes {*}[logic_path_shapes li 0.17 \
+            [list [list $access_x $ay] [list $access_x $rail_y]]]
+        lappend shapes {*}[viali_contact_shapes $access_x $rail_y]
         lassign [route_guard_shapes_available $net $shapes] available conflict
         if {!$available} {
             set last_conflict $conflict
