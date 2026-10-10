@@ -22,7 +22,7 @@ if {$layout_target ni {top subckts}} {
 set route_guard_rects {}
 set route_endpoint_rects {}
 set route_guard_enforce_die 0
-array set route_guard_spacing {li 0.17 locali 0.17 met1 0.14 met2 0.14 met3 0.3 met4 0.3}
+array set route_guard_spacing {li 0.17 locali 0.17 mcon 0.19 met1 0.14 met2 0.14 met3 0.3 met4 0.3}
 proc route_guard_reset {} {
     set ::route_guard_rects {}
 }
@@ -68,8 +68,8 @@ proc route_guard_register {net layer x1 y1 x2 y2} {
 
 proc route_via2_shapes {x y {wide_m3 1}} {
     if {$wide_m3} {
-        set metal3 [list met3 [expr {$x - 0.31}] [expr {$y - 0.20}] \
-            [expr {$x + 0.31}] [expr {$y + 0.20}]]
+        set metal3 [list met3 [expr {$x - 0.20}] [expr {$y - 0.20}] \
+            [expr {$x + 0.20}] [expr {$y + 0.20}]]
     } else {
         set metal3 [list met3 [expr {$x - 0.19}] [expr {$y - 0.165}] \
             [expr {$x + 0.19}] [expr {$y + 0.165}]]
@@ -424,17 +424,17 @@ proc make_res_port_label {name x y use layer} {
 }
 
 proc route_res_contact {x y net} {
-    paint_net_rect $net locali [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
-    paint_net_rect $net mcon [expr {$x - 0.16}] [expr {$y - 0.16}] [expr {$x + 0.16}] [expr {$y + 0.16}]
-    paint_net_rect $net met1 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+    paint_net_rect $net locali [expr {$x - 0.165}] [expr {$y - 0.165}] [expr {$x + 0.165}] [expr {$y + 0.165}]
+    paint_net_rect $net mcon [expr {$x - 0.085}] [expr {$y - 0.085}] [expr {$x + 0.085}] [expr {$y + 0.085}]
+    paint_net_rect $net met1 [expr {$x - 0.145}] [expr {$y - 0.145}] [expr {$x + 0.145}] [expr {$y + 0.145}]
     paint_via1 $net $x $y
     paint_net_rect $net met2 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
 }
 
 proc route_res_body_contact {x y exit_x net} {
-    paint_net_rect $net locali [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
-    paint_net_rect $net mcon [expr {$x - 0.16}] [expr {$y - 0.16}] [expr {$x + 0.16}] [expr {$y + 0.16}]
-    paint_net_rect $net met1 [expr {$x - 0.22}] [expr {$y - 0.22}] [expr {$x + 0.22}] [expr {$y + 0.22}]
+    paint_net_rect $net locali [expr {$x - 0.165}] [expr {$y - 0.165}] [expr {$x + 0.165}] [expr {$y + 0.165}]
+    paint_net_rect $net mcon [expr {$x - 0.085}] [expr {$y - 0.085}] [expr {$x + 0.085}] [expr {$y + 0.085}]
+    paint_net_rect $net met1 [expr {$x - 0.145}] [expr {$y - 0.145}] [expr {$x + 0.145}] [expr {$y + 0.145}]
     paint_net_rect $net met1 [expr {min($x, $exit_x) - 0.2}] [expr {$y - 0.2}] [expr {max($x, $exit_x) + 0.2}] [expr {$y + 0.2}]
     paint_via1 $net $exit_x $y
     paint_net_rect $net met2 [expr {$exit_x - 0.22}] [expr {$y - 0.22}] [expr {$exit_x + 0.22}] [expr {$y + 0.22}]
@@ -815,10 +815,10 @@ proc route_mos_endpoint {x y pin layer lane net {track_x ""}} {
         set ay [expr {$y + 1.0}]
     }
     if {$pin eq "B"} {
-        paint_net_rect $net locali [expr {$x - 0.18}] [expr {$y - 0.18}] [expr {$x + 0.18}] [expr {$y + 0.18}]
-        paint_net_rect $net mcon [expr {$x - 0.10}] [expr {$y - 0.10}] [expr {$x + 0.10}] [expr {$y + 0.10}]
-        paint_net_rect $net met1 [expr {$x - 0.13}] [expr {$y - 0.16}] [expr {$x + 0.13}] [expr {$y + 0.16}]
-        box [expr {$x - 0.10}]um [expr {$y - 0.10}]um [expr {$x + 0.10}]um [expr {$y + 0.10}]um
+        paint_net_rect $net locali [expr {$x - 0.165}] [expr {$y - 0.165}] [expr {$x + 0.165}] [expr {$y + 0.165}]
+        paint_net_rect $net mcon [expr {$x - 0.085}] [expr {$y - 0.085}] [expr {$x + 0.085}] [expr {$y + 0.085}]
+        paint_net_rect $net met1 [expr {$x - 0.145}] [expr {$y - 0.145}] [expr {$x + 0.145}] [expr {$y + 0.145}]
+        box [expr {$x - 0.085}]um [expr {$y - 0.085}]um [expr {$x + 0.085}]um [expr {$y + 0.085}]um
         sky130::mcon_draw vert
     }
     if {$pin eq "G"} {
@@ -863,7 +863,7 @@ proc route_mos_endpoint {x y pin layer lane net {track_x ""}} {
 proc paint_via2 {net x y {wide_m3 0}} {
     paint_net_rect $net met2 [expr {$x - 0.14}] [expr {$y - 0.19}] [expr {$x + 0.14}] [expr {$y + 0.19}]
     if {$wide_m3} {
-        paint_net_rect $net met3 [expr {$x - 0.31}] [expr {$y - 0.20}] [expr {$x + 0.31}] [expr {$y + 0.20}]
+        paint_net_rect $net met3 [expr {$x - 0.20}] [expr {$y - 0.20}] [expr {$x + 0.20}] [expr {$y + 0.20}]
     } else {
         paint_net_rect $net met3 [expr {$x - 0.19}] [expr {$y - 0.165}] [expr {$x + 0.19}] [expr {$y + 0.165}]
     }
@@ -1463,17 +1463,6 @@ proc route_logic_row_supply_endpoint {endpoint rail_y net exit_candidates} {
 proc route_analog_supply_endpoint {endpoint rail_y net} {
     lassign $endpoint x y kind pin layer
     set body_pin [expr {$pin eq "B"}]
-    if {$body_pin} {
-        paint_net_rect $net locali \
-            [expr {$x - 0.25}] [expr {$y - 0.25}] \
-            [expr {$x + 0.25}] [expr {$y + 0.25}]
-        paint_net_rect $net mcon \
-            [expr {$x - 0.12}] [expr {$y - 0.12}] \
-            [expr {$x + 0.12}] [expr {$y + 0.12}]
-        paint_net_rect $net met1 \
-            [expr {$x - 0.22}] [expr {$y - 0.22}] \
-            [expr {$x + 0.22}] [expr {$y + 0.22}]
-    }
     set ay $y
     if {$pin eq "G"} {
         set ay [expr {$y + 1.0}]
@@ -1488,6 +1477,17 @@ proc route_analog_supply_endpoint {endpoint rail_y net} {
         }
         lappend points [list $access_x $ay]
         set shapes [logic_path_shapes met1 0.30 $points]
+        if {$body_pin} {
+            lappend shapes [list locali \
+                [expr {$x - 0.165}] [expr {$y - 0.165}] \
+                [expr {$x + 0.165}] [expr {$y + 0.165}]]
+            lappend shapes [list mcon \
+                [expr {$x - 0.085}] [expr {$y - 0.085}] \
+                [expr {$x + 0.085}] [expr {$y + 0.085}]]
+            lappend shapes [list met1 \
+                [expr {$x - 0.145}] [expr {$y - 0.145}] \
+                [expr {$x + 0.145}] [expr {$y + 0.145}]]
+        }
         lappend shapes {*}[viali_contact_shapes $access_x $ay]
         lappend shapes {*}[logic_path_shapes li 0.17 \
             [list [list $access_x $ay] [list $access_x $rail_y]]]
@@ -2309,14 +2309,14 @@ proc route_logic_supply_terminal {endpoint rail_y net} {
         set ax [expr {$x + 0.8}]
     }
     if {$body_pin} {
-        paint_net_rect $net locali [expr {$x - 0.18}] [expr {$y - 0.18}] \
-            [expr {$x + 0.18}] [expr {$y + 0.18}]
-        paint_net_rect $net mcon [expr {$x - 0.10}] [expr {$y - 0.10}] \
-            [expr {$x + 0.10}] [expr {$y + 0.10}]
-        paint_net_rect $net met1 [expr {$x - 0.16}] [expr {$y - 0.16}] \
-            [expr {$x + 0.16}] [expr {$y + 0.16}]
-        box [expr {$x - 0.10}]um [expr {$y - 0.10}]um \
-            [expr {$x + 0.10}]um [expr {$y + 0.10}]um
+        paint_net_rect $net locali [expr {$x - 0.165}] [expr {$y - 0.165}] \
+            [expr {$x + 0.165}] [expr {$y + 0.165}]
+        paint_net_rect $net mcon [expr {$x - 0.085}] [expr {$y - 0.085}] \
+            [expr {$x + 0.085}] [expr {$y + 0.085}]
+        paint_net_rect $net met1 [expr {$x - 0.145}] [expr {$y - 0.145}] \
+            [expr {$x + 0.145}] [expr {$y + 0.145}]
+        box [expr {$x - 0.085}]um [expr {$y - 0.085}]um \
+            [expr {$x + 0.085}]um [expr {$y + 0.085}]um
         sky130::mcon_draw vert
         set ay [expr {$y - 0.6}]
         set offsets {-2.4 2.4 -2.8 2.8}
