@@ -457,6 +457,12 @@ proc make_mos {parent name type w l} {
     if {$body_layer ni {mvnsubdiffcont mvpsubdiffcont}} {
         error "Unsupported body-contact layer $body_layer in $cellpath"
     }
+    box [expr {$bx - 0.165}]um [expr {$by - 0.165}]um \
+        [expr {$bx + 0.165}]um [expr {$by + 0.165}]um
+    paint locali
+    box [expr {$bx - 0.085}]um [expr {$by - 0.085}]um \
+        [expr {$bx + 0.085}]um [expr {$by + 0.085}]um
+    paint mcon
     box [expr {$bx - 0.18}]um [expr {$by - 0.18}]um \
         [expr {$bx + 0.18}]um [expr {$by + 0.18}]um
     paint metal1
