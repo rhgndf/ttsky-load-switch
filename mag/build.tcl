@@ -1666,8 +1666,8 @@ proc local_m1_access_shapes {endpoint column escape_y axis} {
     set shapes {}
     lassign $endpoint x y kind pin layer
     if {$kind eq "mos"} {
-        lappend shapes [list met1 [expr {$x - 0.22}] [expr {$y - 0.22}] \
-            [expr {$x + 0.22}] [expr {$y + 0.22}]]
+        lappend shapes [list met1 [expr {$x - 0.15}] [expr {$y - 0.15}] \
+            [expr {$x + 0.15}] [expr {$y + 0.15}]]
     }
     if {$axis eq "vertical"} {
         if {abs($y - $escape_y) > 1.0e-6} {
