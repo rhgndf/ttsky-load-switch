@@ -1959,7 +1959,7 @@ proc route_global_nets {} {
     }
     set column_by_endpoint {}
     set local_escape_by_endpoint {}
-    foreach endpoint_group {cz pad local} {
+    foreach endpoint_group {cz mim pad local} {
         set ranked_endpoints {}
         set endpoint_order 0
         foreach net $ordered_nets {
@@ -1968,9 +1968,12 @@ proc route_global_nets {} {
                 lassign $endpoint x y kind pin layer
                 if {($endpoint_group eq "cz" &&
                     !($kind eq "capacitor" && $pin eq "C2")) ||
+                    ($endpoint_group eq "mim" &&
+                    !($kind eq "capacitor" && $pin eq "C1")) ||
                     ($endpoint_group eq "pad" && $kind ne "pad") ||
                     ($endpoint_group eq "local" &&
-                    ($kind eq "pad" || ($kind eq "capacitor" && $pin eq "C2")))} {
+                    ($kind eq "pad" || ($kind eq "capacitor" &&
+                    $pin in {C1 C2})))} {
                     continue
                 }
                 set ranked {}
