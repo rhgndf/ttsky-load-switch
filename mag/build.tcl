@@ -1765,19 +1765,30 @@ proc deterministic_stub_shapes {net endpoint column lane {pad_escape_y ""} \
         if {$local_escape_y eq ""} {
             set local_escape_y $y
         }
-        lappend shapes {*}[route_via2_shapes $x $y 0]
-        if {abs($y - $local_escape_y) > 1.0e-6} {
-            lappend shapes [list met2 [expr {$x - 0.15}] \
-                [expr {min($y, $local_escape_y) - 0.15}] \
-                [expr {$x + 0.15}] [expr {max($y, $local_escape_y) + 0.15}]]
-        }
-        if {abs($x - $column) > 1.0e-6} {
-            lappend shapes [list met2 [expr {min($x, $column) - 0.15}] \
-                [expr {$local_escape_y - 0.15}] \
-                [expr {max($x, $column) + 0.15}] \
-                [expr {$local_escape_y + 0.15}]]
-        }
-        if {abs($x - $column) > 1.0e-6 || abs($y - $local_escape_y) > 1.0e-6} {
+        if {$layer eq "met3"} {
+            if {abs($y - $local_escape_y) > 1.0e-6} {
+                lappend shapes [list met3 [expr {$x - 0.2}] \
+                    [expr {min($y, $local_escape_y) - 0.2}] \
+                    [expr {$x + 0.2}] [expr {max($y, $local_escape_y) + 0.2}]]
+            }
+            if {abs($x - $column) > 1.0e-6} {
+                lappend shapes [list met3 [expr {min($x, $column) - 0.2}] \
+                    [expr {$local_escape_y - 0.2}] \
+                    [expr {max($x, $column) + 0.2}] \
+                    [expr {$local_escape_y + 0.2}]]
+            }
+        } else {
+            if {abs($y - $local_escape_y) > 1.0e-6} {
+                lappend shapes [list met2 [expr {$x - 0.15}] \
+                    [expr {min($y, $local_escape_y) - 0.15}] \
+                    [expr {$x + 0.15}] [expr {max($y, $local_escape_y) + 0.15}]]
+            }
+            if {abs($x - $column) > 1.0e-6} {
+                lappend shapes [list met2 [expr {min($x, $column) - 0.15}] \
+                    [expr {$local_escape_y - 0.15}] \
+                    [expr {max($x, $column) + 0.15}] \
+                    [expr {$local_escape_y + 0.15}]]
+            }
             lappend shapes {*}[route_via2_shapes $column $local_escape_y 0]
         }
         set y $local_escape_y
@@ -1845,15 +1856,22 @@ proc route_deterministic_signal_endpoint {net endpoint column lane \
         if {$local_escape_y eq ""} {
             set local_escape_y $y
         }
-        paint_via2 $net $x $y 0
-        if {abs($y - $local_escape_y) > 1.0e-6} {
-            paint_m2_path [list [list $x $y] [list $x $local_escape_y]] $net
-        }
-        if {abs($x - $column) > 1.0e-6} {
-            paint_m2_path [list [list $x $local_escape_y] \
-                [list $column $local_escape_y]] $net
-        }
-        if {abs($x - $column) > 1.0e-6 || abs($y - $local_escape_y) > 1.0e-6} {
+        if {$layer eq "met3"} {
+            if {abs($y - $local_escape_y) > 1.0e-6} {
+                paint_m3_path [list [list $x $y] [list $x $local_escape_y]] $net
+            }
+            if {abs($x - $column) > 1.0e-6} {
+                paint_m3_path [list [list $x $local_escape_y] \
+                    [list $column $local_escape_y]] $net
+            }
+        } else {
+            if {abs($y - $local_escape_y) > 1.0e-6} {
+                paint_m2_path [list [list $x $y] [list $x $local_escape_y]] $net
+            }
+            if {abs($x - $column) > 1.0e-6} {
+                paint_m2_path [list [list $x $local_escape_y] \
+                    [list $column $local_escape_y]] $net
+            }
             paint_via2 $net $column $local_escape_y 0
         }
         set y $local_escape_y
