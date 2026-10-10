@@ -463,8 +463,8 @@ proc make_mos {parent name type w l} {
     box [expr {$bx - 0.085}]um [expr {$by - 0.085}]um \
         [expr {$bx + 0.085}]um [expr {$by + 0.085}]um
     paint mcon
-    box [expr {$bx - 0.18}]um [expr {$by - 0.18}]um \
-        [expr {$bx + 0.18}]um [expr {$by + 0.18}]um
+    box [expr {$bx - 0.15}]um [expr {$by - 0.15}]um \
+        [expr {$bx + 0.15}]um [expr {$by + 0.15}]um
     paint metal1
     save $cellpath
     load $parent
@@ -1484,17 +1484,6 @@ proc route_analog_supply_endpoint {endpoint rail_y net} {
         }
         lappend points [list $access_x $ay]
         set shapes [logic_path_shapes met1 0.30 $points]
-        if {$body_pin} {
-            lappend shapes [list locali \
-                [expr {$x - 0.165}] [expr {$y - 0.165}] \
-                [expr {$x + 0.165}] [expr {$y + 0.165}]]
-            lappend shapes [list mcon \
-                [expr {$x - 0.085}] [expr {$y - 0.085}] \
-                [expr {$x + 0.085}] [expr {$y + 0.085}]]
-            lappend shapes [list met1 \
-                [expr {$x - 0.145}] [expr {$y - 0.145}] \
-                [expr {$x + 0.145}] [expr {$y + 0.145}]]
-        }
         lappend shapes {*}[viali_contact_shapes $access_x $ay]
         lappend shapes {*}[logic_path_shapes li 0.17 \
             [list [list $access_x $ay] [list $access_x $rail_y]]]
