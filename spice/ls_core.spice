@@ -69,7 +69,7 @@ XM3 d1 d1 VAPWR VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=4 L=2
 XM4 out1 d1 VAPWR VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=4 L=2
 XM6 GATE out1 VAPWR VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=40 L=1
 XM7 GATE nb VGND VGND sky130_fd_pr__nfet_g5v0d10v5 W=40 L=1
-XCC out1 cz sky130_fd_pr__cap_mim_m3_1 W=38 L=38 MF=1
+XCC cz out1 sky130_fd_pr__cap_mim_m3_1 W=38 L=38 MF=1
 XRZ cz GATE VGND sky130_fd_pr__res_xhigh_po_0p69 L=2
 * disable: park out1 high, pull GATE low
 XMEN out1 en VAPWR VAPWR sky130_fd_pr__pfet_g5v0d10v5 W=2 L=0.5
