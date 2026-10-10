@@ -1144,15 +1144,25 @@ proc collect_top_pad_endpoints {} {
     }
 }
 
-proc signal_column_reserved_for_endpoint {kind candidate y} {
+proc signal_column_reserved_for_endpoint {kind pin candidate y lane pad_escape_y} {
     global res_group_global_bbox mimcap_global_bbox
+    if {$pad_escape_y ne ""} {
+        set y $pad_escape_y
+    }
+    set ylo [expr {min($y, $lane)}]
+    set yhi [expr {max($y, $lane)}]
     foreach {bbox margin} [list $res_group_global_bbox 0.6 \
         $mimcap_global_bbox 1.4] {
         if {[llength $bbox] != 4} {
             continue
         }
+        if {$kind eq "capacitor" && $pin eq "C2"} {
+            continue
+        }
         if {$candidate >= [lindex $bbox 0] - $margin &&
-            $candidate <= [lindex $bbox 2] + $margin} {
+            $candidate <= [lindex $bbox 2] + $margin &&
+            $ylo < [lindex $bbox 3] + $margin &&
+            $yhi > [lindex $bbox 1] - $margin} {
             return 1
         }
     }
@@ -1982,7 +1992,8 @@ proc route_global_nets {} {
                         abs($candidate - 13.80) < 0.8} {
                         continue
                     }
-                    if {[signal_column_reserved_for_endpoint $kind $candidate $y]} {
+                    if {[signal_column_reserved_for_endpoint $kind $pin $candidate \
+                        $y $lane $pad_escape_y]} {
                         continue
                     }
                     set colkey [format "%.3f" $candidate]
