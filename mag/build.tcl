@@ -638,6 +638,43 @@ proc label_center {path pin kind} {
         [expr {$x1 / 200.0}] [expr {$y1 / 200.0}] [expr {$x2 / 200.0}] [expr {$y2 / 200.0}]]
 }
 
+proc mim_c2_metal4_rectangles {path} {
+    set fh [open $path r]
+    set layer ""
+    set contact_xhi -1.0e30
+    set metal4_rects {}
+    while {[gets $fh line] >= 0} {
+        if {[regexp {^<< ([^ >]+) >>$} $line -> layer]} {
+            continue
+        }
+        if {![regexp {^rect (-?[0-9.]+) (-?[0-9.]+) (-?[0-9.]+) (-?[0-9.]+)$} \
+            $line -> x1 y1 x2 y2]} {
+            continue
+        }
+        if {$layer eq "mimcapcontact" && $x1 <= 0 && $x2 >= 0 &&
+            $y1 <= 0 && $y2 >= 0} {
+            if {$x2 > $contact_xhi} {set contact_xhi $x2}
+        } elseif {$layer eq "metal4"} {
+            lappend metal4_rects [list $x1 $y1 $x2 $y2]
+        }
+    }
+    close $fh
+    if {$contact_xhi < -1.0e29} {
+        error "No C2 MIM contact region in $path"
+    }
+    set c2_rects {}
+    foreach rect $metal4_rects {
+        lassign $rect x1 y1 x2 y2
+        if {$x1 <= $contact_xhi + 1 && $x2 <= $contact_xhi + 1} {
+            lappend c2_rects $rect
+        }
+    }
+    if {[llength $c2_rects] == 0} {
+        error "No C2 metal4 geometry in $path"
+    }
+    return $c2_rects
+}
+
 proc mim_c2_metal4_landing {path} {
     set fh [open $path r]
     set layer ""
@@ -705,7 +742,7 @@ array set endpoint_row_by_key {}
 set res_group_global_bbox {}
 set mimcap_global_bbox {}
 set mimcap_global_xy {}
-set mimcap_global_m4_obstacle {}
+set mimcap_global_m4_obstacles {}
 set analog_start_y 0.0
 set res_group_local_m3_obstacles {}
 set res_group_global_m3_obstacles {}
@@ -766,6 +803,9 @@ proc add_net_pin {path x y pin net kind {rotation 0} {access_override ""}} {
     } elseif {$kind eq "capacitor"} {
         lappend shapes [list $net met3 \
             [expr {$px - 0.31}] [expr {$py - 0.20}] [expr {$px + 0.31}] [expr {$py + 0.20}]]
+        lappend shapes [list $net met4 \
+            [expr {$px - 0.165}] [expr {$py - 0.165}] \
+            [expr {$px + 0.165}] [expr {$py + 0.165}]]
     } elseif {$kind eq "pad"} {
         lappend shapes [list $net $layer \
             [expr {$px - 0.30}] [expr {$py - 0.30}] [expr {$px + 0.30}] [expr {$py + 0.30}]]
@@ -1657,12 +1697,30 @@ proc local_m1_access_shapes {endpoint column escape_y axis} {
     return $shapes
 }
 
-proc mim_c2_escape_y {y} {
-    global mimcap_global_bbox
-    if {[llength $mimcap_global_bbox] != 4} {
+proc mim_c2_escape_point {c1_x} {
+    global endpoints mimcap_global_m3_obstacle
+    if {[llength $mimcap_global_m3_obstacle] != 6} {
         error "MIM escape requires capacitor placement"
     }
-    return [expr {[lindex $mimcap_global_bbox 1] - 0.6}]
+    lassign $mimcap_global_m3_obstacle owner layer xlo ylo xhi yhi
+    if {![info exists endpoints(cz)]} {
+        error "MIM escape requires the XRZ cz endpoint"
+    }
+    set xrz_x ""
+    foreach endpoint $endpoints(cz) {
+        lassign $endpoint x y kind pin
+        if {$kind eq "resistor" && $pin eq "cz"} {
+            set xrz_x $x
+            break
+        }
+    }
+    if {$xrz_x eq ""} {
+        error "MIM escape cannot locate the XRZ cz endpoint"
+    }
+    if {abs($xrz_x - $c1_x) < 1.0} {
+        error "XRZ cz escape is too close to the MIM C1 via3 terminal"
+    }
+    return [list $xrz_x [expr {$ylo - 0.6}]]
 }
 
 proc deterministic_stub_shapes {net endpoint column lane {pad_escape_y ""} \
@@ -1679,14 +1737,17 @@ proc deterministic_stub_shapes {net endpoint column lane {pad_escape_y ""} \
             lappend shapes {*}[route_via2_shapes $column $y 0]
         }
     } elseif {$kind eq "capacitor" && $pin eq "C2"} {
-        set escape_y [mim_c2_escape_y $y]
-        lappend shapes [list met4 [expr {$x - 0.15}] \
-            [expr {min($y, $escape_y) - 0.15}] [expr {$x + 0.15}] \
-            [expr {max($y, $escape_y) + 0.15}]]
-        lappend shapes [list met4 [expr {min($x, $column) - 0.15}] \
-            [expr {$escape_y - 0.15}] [expr {max($x, $column) + 0.15}] \
-            [expr {$escape_y + 0.15}]]
-        lappend shapes {*}[route_via3_shapes $column $escape_y]
+        lassign [mim_c2_escape_point $x] escape_x escape_y
+        lappend shapes [list met4 [expr {min($x, $escape_x) - 0.15}] \
+            [expr {$y - 0.15}] [expr {max($x, $escape_x) + 0.15}] \
+            [expr {$y + 0.15}]]
+        lappend shapes [list met4 [expr {$escape_x - 0.15}] \
+            [expr {min($y, $escape_y) - 0.15}] \
+            [expr {$escape_x + 0.15}] [expr {max($y, $escape_y) + 0.15}]]
+        lappend shapes {*}[route_via3_shapes $escape_x $escape_y]
+        lappend shapes [list met3 [expr {min($escape_x, $column) - 0.2}] \
+            [expr {$escape_y - 0.2}] [expr {max($escape_x, $column) + 0.2}] \
+            [expr {$escape_y + 0.2}]]
         set y $escape_y
     } elseif {$kind eq "resistor"} {
         if {$local_escape_y eq ""} {
@@ -1741,16 +1802,22 @@ proc route_deterministic_signal_endpoint {net endpoint column lane \
             paint_via2 $net $column $y 0
         }
     } elseif {$kind eq "capacitor" && $pin eq "C2"} {
-        set escape_y [mim_c2_escape_y $y]
-        paint_net_rect $net met4 [expr {$x - 0.15}] \
-            [expr {min($y, $escape_y) - 0.15}] [expr {$x + 0.15}] \
-            [expr {max($y, $escape_y) + 0.15}]
-        if {abs($x - $column) > 1.0e-6} {
-            paint_net_rect $net met4 [expr {min($x, $column) - 0.15}] \
-                [expr {$escape_y - 0.15}] [expr {max($x, $column) + 0.15}] \
-                [expr {$escape_y + 0.15}]
+        lassign [mim_c2_escape_point $x] escape_x escape_y
+        if {abs($x - $escape_x) > 1.0e-6} {
+            paint_net_rect $net met4 [expr {min($x, $escape_x) - 0.15}] \
+                [expr {$y - 0.15}] [expr {max($x, $escape_x) + 0.15}] \
+                [expr {$y + 0.15}]
         }
-        paint_via3 $net $column $escape_y
+        if {abs($y - $escape_y) > 1.0e-6} {
+            paint_net_rect $net met4 [expr {$escape_x - 0.15}] \
+                [expr {min($y, $escape_y) - 0.15}] \
+                [expr {$escape_x + 0.15}] [expr {max($y, $escape_y) + 0.15}]
+        }
+        paint_via3 $net $escape_x $escape_y
+        if {abs($escape_x - $column) > 1.0e-6} {
+            paint_m3_path [list [list $escape_x $escape_y] \
+                [list $column $escape_y]] $net
+        }
         set y $escape_y
     } elseif {$kind eq "resistor"} {
         if {$local_escape_y eq ""} {
@@ -2806,7 +2873,7 @@ proc make_mim_cap {} {
 
 proc place_mim_cap {base_y} {
     global top mimcap_global_bbox mimcap_global_xy res_group_global_bbox
-    global mimcap_global_rotation mimcap_global_m3_obstacle mimcap_global_m4_obstacle
+    global mimcap_global_rotation mimcap_global_m3_obstacle mimcap_global_m4_obstacles
     set res_bbox [cell_bbox res_group.mag]
     lassign $res_bbox rx1 ry1 rx2 ry2
     set bbox [make_mim_cap]
@@ -2832,7 +2899,16 @@ proc place_mim_cap {base_y} {
     set mimcap_global_m3_obstacle [list out1 met3 \
         [expr {$x + $m3x1}] [expr {$y + $m3y1}] \
         [expr {$x + $m3x2}] [expr {$y + $m3y2}]]
-    set mimcap_global_m4_obstacle [list cz met4 $xlo $ylo $xhi $yhi]
+    set mimcap_global_m4_obstacles {}
+    foreach rect [mim_c2_metal4_rectangles XCC.mag] {
+        lassign $rect mx1 my1 mx2 my2
+        lassign [transform_rect [expr {$mx1 / 200.0}] [expr {$my1 / 200.0}] \
+            [expr {$mx2 / 200.0}] [expr {$my2 / 200.0}] $rotation] \
+            m4x1 m4y1 m4x2 m4y2
+        lappend mimcap_global_m4_obstacles [list cz met4 \
+            [expr {$x + $m4x1}] [expr {$y + $m4y1}] \
+            [expr {$x + $m4x2}] [expr {$y + $m4y2}]]
+    }
 }
 
 proc collect_mim_endpoints {} {
@@ -2892,8 +2968,10 @@ if {$layout_stage eq "routing"} {
     if {[info exists mimcap_global_m3_obstacle]} {
         route_guard_register {*}$mimcap_global_m3_obstacle
     }
-    if {[info exists mimcap_global_m4_obstacle]} {
-        route_guard_register {*}$mimcap_global_m4_obstacle
+    if {[info exists mimcap_global_m4_obstacles]} {
+        foreach obstacle $mimcap_global_m4_obstacles {
+            route_guard_register {*}$obstacle
+        }
     }
     register_logic_cell_obstacles
     route_guard_register_endpoint_obstacles
